@@ -81,12 +81,9 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
             text.insert(0, response.data.content);
             console.log(`[Yjs] Applied initial server content: ${response.data.content.length} chars`);
             lastSyncedContent = response.data.content;
-            
-            // Update editor view with server content
-            const editor_model = model;
-            if (editor_model) {
-              editor_model.setValue(response.data.content);
-            }
+
+            // Do NOT set editor value directly here.
+            // Let Yjs -> Monaco binding update the editor to avoid duplication.
           }
         }
         
@@ -116,6 +113,44 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   
   // Fetch initial state immediately
   fetchInitialState();
+
+  // Explicitly join the session to register presence before syncing
+  const joinSession = async () => {
+    // Wait for initial state to be fetched to avoid race conditions
+    let waitCount = 0;
+    while (!initialSyncDone && waitCount < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+    try {
+      const currentUsername = useUserStore.getState().username;
+      console.log(`[Yjs] Joining session on server as "${currentUsername}"`);
+      const joinResp = await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
+        type: 'join',
+        userId,
+        username: currentUsername,
+        color: '#3b82f6',
+      });
+      // If server returned collaborators, update local store (authoritative list)
+      const collabs = joinResp?.data?.collaborators;
+      if (Array.isArray(collabs)) {
+        const remoteCollabs = collabs
+          .filter((c: any) => c && c.id !== userId)
+          .map((c: any) => ({
+            id: c.id,
+            username: c.username || 'Unknown',
+            color: c.color || '#8b5cf6',
+            cursor: c.cursor || { line: 0, column: 0 },
+            isActive: c.isActive,
+            lastSeen: c.lastSeen || Date.now(),
+          }));
+        console.log(`[Yjs] Join updated collaborators: ${remoteCollabs.length} remote users`);
+        useCollaborationStore.getState().setCollaborators(remoteCollabs);
+      }
+    } catch (err) {
+      console.error('[Yjs] Join session error:', err);
+    }
+  };
   
   // Then register user with initial sync after state is loaded
   const registerUser = async () => {
@@ -145,6 +180,8 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
     }
   };
   
+  // Ensure presence is registered early so others can see this user
+  joinSession();
   registerUser();
   
   const httpSyncInterval = setInterval(async () => {
