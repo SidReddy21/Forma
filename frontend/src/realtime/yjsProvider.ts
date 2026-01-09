@@ -38,8 +38,8 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     }
   }
 
-  // Create awareness for collaborative state (must use doc.awareness that y-indexeddb provides)
-  const awareness = doc.awareness || new Y.Awareness(doc);
+  // Create awareness for collaborative state (provided by IndexeddbPersistence)
+  const awareness = persistence.awareness;
   awareness.setLocalStateField('user', {
     name: username,
     color: '#3b82f6',
