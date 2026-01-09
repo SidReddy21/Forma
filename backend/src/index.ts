@@ -3,7 +3,6 @@
  * Handles API routing, auth, and AI orchestration
  */
 
-import { SessionManager } from '../durable-objects/SessionManager';
 import { CodeAIService } from './ai';
 import {
   EditorSession,
@@ -11,6 +10,9 @@ import {
   RealtimeMessage,
   WorkflowPayload,
 } from '../types';
+
+// Export Durable Objects
+export { SessionManager } from '../../durable-objects/SessionManager';
 
 export interface Env {
   AI: any; // Cloudflare Workers AI binding
@@ -119,9 +121,9 @@ async function handleSessions(request: Request, env: Env): Promise<Response> {
       console.log('D1 not yet initialized, using in-memory storage');
     }
 
-    return new Response(JSON.stringify(session), {
+    return addCORSHeaders(new Response(JSON.stringify(session), {
       headers: { 'Content-Type': 'application/json' },
-    });
+    }));
   }
 
   if (request.method === 'GET' && url.pathname.match(/\/api\/sessions\/[^/]+$/)) {
@@ -134,15 +136,18 @@ async function handleSessions(request: Request, env: Env): Promise<Response> {
       ).bind(sessionId).first();
 
       if (result) {
-        return new Response(JSON.stringify(result), {
+        return addCORSHeaders(new Response(JSON.stringify(result), {
           headers: { 'Content-Type': 'application/json' },
-        });
+        }));
       }
     } catch (error) {
       console.log('D1 not initialized');
     }
 
-    return new Response('Session not found', { status: 404 });
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'Session not found' }), { 
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    }));
   }
 
   if (request.method === 'PUT' && url.pathname.match(/\/api\/sessions\/[^/]+$/)) {
@@ -155,18 +160,21 @@ async function handleSessions(request: Request, env: Env): Promise<Response> {
         'UPDATE sessions SET content = ?, updated_at = ? WHERE id = ?'
       ).bind(content, updatedAt || Date.now(), sessionId).run();
 
-      return new Response(JSON.stringify({ id: sessionId, updated: true }), {
+      return addCORSHeaders(new Response(JSON.stringify({ id: sessionId, updated: true }), {
         headers: { 'Content-Type': 'application/json' },
-      });
+      }));
     } catch (error) {
       console.log('Failed to update session:', error);
-      return new Response(JSON.stringify({ id: sessionId, updated: false }), {
+      return addCORSHeaders(new Response(JSON.stringify({ id: sessionId, updated: false }), {
         headers: { 'Content-Type': 'application/json' },
-      });
+      }));
     }
   }
 
-  return new Response('Bad request', { status: 400 });
+  return addCORSHeaders(new Response(JSON.stringify({ error: 'Bad request' }), { 
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  }));
 }
 
 async function handleCollaboration(request: Request, env: Env): Promise<Response> {
@@ -174,15 +182,24 @@ async function handleCollaboration(request: Request, env: Env): Promise<Response
   const sessionId = url.searchParams.get('sessionId');
 
   if (!sessionId) {
-    return new Response('sessionId required', { status: 400 });
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'sessionId required' }), { 
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    }));
   }
 
-  // Get the Durable Object instance for this session
-  const sessionObj = env.SESSIONS.get(env.SESSIONS.idFromString(sessionId));
-
-  // Forward the request to the Durable Object
-  const response = await sessionObj.fetch(request);
-  return response;
+  try {
+    // Get the Durable Object instance for this session
+    const stub = env.SESSIONS.get(env.SESSIONS.idFromName(sessionId));
+    const response = await stub.fetch(request);
+    return addCORSHeaders(response);
+  } catch (error) {
+    console.error('Collaboration error:', error);
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'Collaboration service error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  }
 }
 
 async function handleAI(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -194,12 +211,15 @@ async function handleAI(request: Request, env: Env, ctx: ExecutionContext): Prom
 
     try {
       const completion = await generateCompletion(env, context, language, position);
-      return new Response(JSON.stringify(completion), {
+      return addCORSHeaders(new Response(JSON.stringify(completion), {
         headers: { 'Content-Type': 'application/json' },
-      });
+      }));
     } catch (error) {
       console.error('AI error:', error);
-      return new Response(`AI error: ${error}`, { status: 500 });
+      return addCORSHeaders(new Response(JSON.stringify({ error: 'AI service error' }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }));
     }
   }
 
@@ -222,24 +242,29 @@ async function handleAI(request: Request, env: Env, ctx: ExecutionContext): Prom
         })
       );
 
-      return new Response(JSON.stringify(analysis), {
+      return addCORSHeaders(new Response(JSON.stringify(analysis), {
         headers: { 'Content-Type': 'application/json' },
-      });
+      }));
     } catch (error) {
       console.error('AI analysis error:', error);
-      return new Response(JSON.stringify({
-        bugs: [{ line: 1, message: 'Error analyzing code: ' + String(error), severity: 'error' }],
+      return addCORSHeaders(new Response(JSON.stringify({
+        sessionId: sessionId || 'unknown',
+        timestamp: Date.now(),
+        bugs: [{ line: 1, message: 'Error analyzing code: ' + String(error), severity: 'error' as const, suggestion: 'Check your code syntax' }],
         improvements: [],
         testCoverage: 0,
-        complexity: 'unknown'
+        complexity: 'medium' as const
       }), {
-        status: 500,
+        status: 200,
         headers: { 'Content-Type': 'application/json' },
-      });
+      }));
     }
   }
 
-  return new Response('Bad request', { status: 400 });
+  return addCORSHeaders(new Response(JSON.stringify({ error: 'Bad request' }), { 
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  }));
 }
 
 async function handleRealtime(request: Request, env: Env): Promise<Response> {

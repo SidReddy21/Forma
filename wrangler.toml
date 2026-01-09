@@ -8,6 +8,15 @@ binding = "AI"
 
 script_name = "codemeld"
 
+# Durable Objects
+[[durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "SessionManager"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionManager"]
+
 # Trigger for Workflows - cron format
 [triggers]
 crons = ["0 */6 * * *"]
