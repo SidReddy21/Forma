@@ -7,6 +7,7 @@ import api from '../services/api';
 interface SyncState {
   lastSync: number;
   pollInterval: NodeJS.Timeout | null;
+  heartbeatInterval: NodeJS.Timeout | null;
   userId: string;
 }
 
@@ -14,8 +15,9 @@ export function useRealtimeSync() {
   const { session, updateSessionContent } = useSessionStore();
   const { editorRef } = useEditorStore();
   const syncStateRef = useRef<SyncState>({
-    lastSync: Date.now(),
+    lastSync: 0,
     pollInterval: null,
+    heartbeatInterval: null,
     userId: `user-${Math.random().toString(36).substr(2, 9)}`,
   });
 
@@ -24,6 +26,20 @@ export function useRealtimeSync() {
 
     const userId = syncStateRef.current.userId;
     const sessionId = session.id;
+
+    // Join the session and refresh heartbeat periodically
+    const heartbeat = async () => {
+      try {
+        await api.post('/api/realtime', {
+          sessionId,
+          userId,
+          type: 'join',
+          username: `User ${userId.substring(5, 14)}`,
+        }, { params: { sessionId, userId } });
+      } catch (error) {
+        console.error('Heartbeat failed:', error);
+      }
+    };
 
     // Poll for updates every 1 second
     const poll = async () => {
@@ -36,7 +52,7 @@ export function useRealtimeSync() {
           },
         });
 
-        const { content, collaborators, updates, timestamp } = response.data;
+        const { content, collaborators, updates } = response.data;
         
         // Update collaborators
         if (collaborators && Array.isArray(collaborators)) {
@@ -57,6 +73,7 @@ export function useRealtimeSync() {
 
         // Apply remote updates
         if (updates && Array.isArray(updates) && updates.length > 0) {
+          let latestTs = syncStateRef.current.lastSync;
           updates.forEach((update: any) => {
             if (update.type === 'edit' && update.userId !== userId && update.newContent) {
               updateSessionContent(update.newContent);
@@ -69,10 +86,12 @@ export function useRealtimeSync() {
               }
               useCollaborationStore.getState().recordChange();
             }
+            if (typeof update.timestamp === 'number') {
+              latestTs = Math.max(latestTs, update.timestamp);
+            }
           });
+          syncStateRef.current.lastSync = latestTs;
         }
-
-        syncStateRef.current.lastSync = timestamp;
       } catch (error) {
         console.error('Realtime sync error:', error);
       }
@@ -80,11 +99,17 @@ export function useRealtimeSync() {
 
     // Start polling
     syncStateRef.current.pollInterval = setInterval(poll, 1000);
+    syncStateRef.current.heartbeatInterval = setInterval(heartbeat, 5000);
+    // Immediate kick-off
+    heartbeat();
     poll();
 
     return () => {
       if (syncStateRef.current.pollInterval) {
         clearInterval(syncStateRef.current.pollInterval);
+      }
+      if (syncStateRef.current.heartbeatInterval) {
+        clearInterval(syncStateRef.current.heartbeatInterval);
       }
     };
   }, [session, updateSessionContent, editorRef]);
@@ -108,6 +133,8 @@ export function useRealtimeSync() {
           userId,
         },
       });
+      // Touch heartbeat on edit
+      try { await api.post('/api/realtime', { sessionId: session.id, userId, type: 'join' }, { params: { sessionId: session.id, userId } }); } catch {}
     } catch (error) {
       console.error('Failed to send edit:', error);
     }
