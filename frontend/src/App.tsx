@@ -63,17 +63,6 @@ export default function App() {
   }, [session]);
 
   if (!session) {
-    // Check for sessionId in URL and auto-load
-    useEffect(() => {
-      const params = new URLSearchParams(window.location.search);
-      const sessionId = params.get('sessionId');
-      if (sessionId && !loading) {
-        joinSession(sessionId).catch(() => {
-          console.error('Session not found');
-        });
-      }
-    }, []);
-
     return (
       <div className="flex items-center justify-center w-full h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <motion.div
