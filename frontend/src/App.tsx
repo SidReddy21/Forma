@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { CodeEditor } from './components/CodeEditor';
 import { CollaborativePanel } from './components/CollaborativePanel';
 import { AIAssistant } from './components/AIAssistant';
+import { OutputPanel } from './components/OutputPanel';
 import { useSessionStore } from './store/sessionStore';
 import { useUserStore } from './store/userStore';
 import { motion } from 'framer-motion';
@@ -216,7 +217,12 @@ export default function App() {
         </div>
 
         {/* Right Panel */}
-        <div className="w-80 flex flex-col gap-4">
+        <div className="w-96 flex flex-col gap-4">
+          {/* Output Panel */}
+          <div className="h-48 bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
+            <OutputPanel />
+          </div>
+
           {/* Collaboration Panel */}
           <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
             <CollaborativePanel />
