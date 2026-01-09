@@ -86,32 +86,43 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
         console.log(`[Yjs] HTTP sync completed - sent ${currentContent.length} chars`);
       }
       
-      // Also fetch remote updates
+      // Also fetch remote updates and collaborator list
       try {
         const response = await api.get(
           `/api/realtime?sessionId=${sessionId}&userId=${userId}&lastSync=${lastSyncTime}`
         );
         
-        if (response.data && response.data.updates && response.data.updates.length > 0) {
-          console.log(`[Yjs] Received ${response.data.updates.length} remote updates`);
-          response.data.updates.forEach((update: any) => {
-            try {
-              const yUpdate = new Uint8Array(update.yState);
-              Y.applyUpdate(doc, yUpdate, 'remote');
-              console.log(`[Yjs] Applied remote update from ${update.username}`);
-              
-              // Update awareness if available
-              if (update.awarenessState && awareness && update.userId !== userId) {
-                console.log(`[Yjs] Updating remote awareness for ${update.username}`);
-                // Trigger awareness update
-                awareness.setLocalState(awareness.getLocalState());
+        if (response.data) {
+          // Update collaborators from backend (this is the authoritative source)
+          if (response.data.collaborators && Array.isArray(response.data.collaborators)) {
+            const remoteCollabs = response.data.collaborators
+              .filter((c: any) => c.id !== userId) // Exclude local user
+              .map((c: any) => ({
+                id: c.id,
+                username: c.username || 'Unknown',
+                color: c.color || '#8b5cf6',
+                cursor: c.cursor || { line: 0, column: 0 },
+                isActive: c.isActive,
+                lastSeen: c.lastSeen || Date.now(),
+              }));
+            
+            console.log(`[Yjs] Updating collaborators from backend: ${remoteCollabs.length} remote users`);
+            useCollaborationStore.getState().setCollaborators(remoteCollabs);
+          }
+          
+          // Apply Yjs updates if any
+          if (response.data.updates && response.data.updates.length > 0) {
+            console.log(`[Yjs] Received ${response.data.updates.length} remote updates`);
+            response.data.updates.forEach((update: any) => {
+              try {
+                const yUpdate = new Uint8Array(update.yState);
+                Y.applyUpdate(doc, yUpdate, 'remote');
+                console.log(`[Yjs] Applied remote update from ${update.username}`);
+              } catch (err) {
+                console.error(`[Yjs] Error applying remote update:`, err);
               }
-            } catch (err) {
-              console.error(`[Yjs] Error applying remote update:`, err);
-            }
-          });
-          // Trigger collaborator update after applying all updates
-          updateCollaborators();
+            });
+          }
         }
       } catch (err) {
         console.error(`[Yjs] Error fetching remote updates:`, err);
@@ -210,39 +221,19 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
     }
   });
 
-  // Update collaborator store on awareness updates
+  // Update collaborator store - NOTE: this is now primarily done via backend sync
+  // The awareness system is kept for potential future use with WebSocket sync
   const updateCollaborators = () => {
-    if (!awareness) return;
-    const localClientID = awareness.clientID;
-    const states = Array.from(awareness.getStates().entries());
-    console.log(`[Yjs] Awareness - local clientID: ${localClientID}, total states: ${states.length}`);
-    
-    // Filter out local user and map to collaborator format
-    const collabs = states
-      .filter(([clientId, _]) => clientId !== localClientID) // Exclude local user
-      .map(([clientId, state]: [number, any]) => ({
-        id: `peer-${clientId}`,
-        username: state?.user?.name || 'Unknown',
-        color: state?.user?.color || '#8b5cf6',
-        cursor: state?.cursor || { line: 0, column: 0 },
-        isActive: true,
-        lastSeen: Date.now(),
-      }));
-    
-    console.log(`[Yjs] Updating collaborators (filtered ${states.length - collabs.length} local):`, collabs);
-    try {
-      useCollaborationStore.getState().setCollaborators(collabs);
-    } catch (err) {
-      console.error(`[Yjs] Error updating collaborators:`, err);
-    }
+    // Collaborators are now updated directly from backend in the HTTP sync loop
+    // This function is kept for potential local awareness updates
+    console.log(`[Yjs] Local awareness update triggered (now using backend collaborator list)`);
   };
 
-  // Listen for awareness updates
+  // Listen for awareness updates (mostly for local state changes)
   if (awareness) {
     try {
       awareness.on('update', updateCollaborators);
       console.log(`[Yjs] Awareness listener attached for room "${roomId}"`);
-      updateCollaborators(); // Initial call to populate current state
     } catch (err) {
       console.error(`[Yjs] Error attaching awareness listener:`, err);
     }
