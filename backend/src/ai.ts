@@ -107,50 +107,44 @@ export class CodeAIService {
       } catch (runErr) {
         console.warn('Execution step failed, continuing with static analysis:', runErr);
       }
-      
-      // Use intelligent fallback directly for now
-      console.log('Using intelligent fallback for code analysis');
-      const fallbackResponse = this.getIntelligentFallback(prompt);
-      console.log('Fallback response:', JSON.stringify(fallbackResponse).substring(0, 300));
-      
-      // Try to use AI if available, but fall back to intelligent analysis
-      try {
-        const response = await this.queryLlama({
-          prompt,
-          model: this.model,
-          maxTokens: 2000,
-          temperature: 0.3,
-          topP: 0.95,
-        });
-        
-        console.log('Got response from queryLlama');
-        const parsed = this.parseAnalysisResponse(response);
-        // Only use AI response if it has actual bugs detected
-        if (parsed.bugs && parsed.bugs.length > 0 && parsed.bugs[0].message !== 'Could not parse analysis response') {
-          console.log('Using AI analysis');
-          // Prepend execution bug if present and not already included
-          if (executionBug) {
-            parsed.bugs = [executionBug, ...parsed.bugs];
-          }
-          if (execMeta) {
-            parsed.execution = execMeta;
-          }
-          return parsed;
+
+      const hasAI = !!this.env.AI;
+      let parsed: CodeAnalysisReport | null = null;
+
+      if (hasAI) {
+        try {
+          const response = await this.queryLlama({
+            prompt,
+            model: this.model,
+            maxTokens: 2000,
+            temperature: 0.3,
+            topP: 0.95,
+          });
+          parsed = this.parseAnalysisResponse(response);
+        } catch (aiError) {
+          console.error('AI query failed:', aiError);
         }
-      } catch (aiError) {
-        console.error('AI query failed:', aiError);
       }
-      
-      // Fall back to intelligent analysis
-      console.log('Falling back to intelligent analysis');
-      const parsedFallback = this.parseAnalysisResponse(fallbackResponse);
+
+      if (!parsed) {
+        // No AI available or parsing failed: return a minimal report with execution context
+        parsed = {
+          sessionId: 'current-session',
+          timestamp: Date.now(),
+          bugs: executionBug ? [executionBug] : [],
+          improvements: [],
+          testCoverage: 0,
+          complexity: 'medium',
+        };
+      }
+
       if (executionBug) {
-        parsedFallback.bugs = [executionBug, ...parsedFallback.bugs];
+        parsed.bugs = [executionBug, ...(parsed.bugs || [])];
       }
       if (execMeta) {
-        parsedFallback.execution = execMeta;
+        parsed.execution = execMeta;
       }
-      return parsedFallback;
+      return parsed;
     } catch (error) {
       console.error('Analysis error:', error);
       // Return basic fallback
@@ -947,13 +941,8 @@ Return JSON in this format:
       return {
         sessionId: 'current-session',
         timestamp: Date.now(),
-        bugs: [{ 
-          line: 1, 
-          severity: 'warning',
-          message: 'Could not parse analysis response', 
-          suggestion: 'Check your code syntax and try again',
-        }],
-        improvements: [],
+        bugs: [],
+        improvements: content ? [{ category: 'AI Raw', suggestions: [String(content).slice(0, 500)] }] : [],
         testCoverage: 0,
         complexity: 'medium',
       };
