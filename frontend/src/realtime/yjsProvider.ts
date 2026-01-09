@@ -121,8 +121,15 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
         if (response.data) {
           // Update collaborators from backend (this is the authoritative source)
           if (response.data.collaborators && Array.isArray(response.data.collaborators)) {
+            console.log(`[Yjs] Backend returned ${response.data.collaborators.length} total collaborators, local userId: "${userId}"`);
             const remoteCollabs = response.data.collaborators
-              .filter((c: any) => c.id !== userId) // Exclude local user
+              .filter((c: any) => {
+                const isLocal = c.id === userId;
+                if (isLocal) {
+                  console.log(`[Yjs] Filtering out local user: ${c.username} (${c.id})`);
+                }
+                return !isLocal; // Exclude local user
+              })
               .map((c: any) => ({
                 id: c.id,
                 username: c.username || 'Unknown',
@@ -132,7 +139,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
                 lastSeen: c.lastSeen || Date.now(),
               }));
             
-            console.log(`[Yjs] Updating collaborators from backend: ${remoteCollabs.length} remote users`);
+            console.log(`[Yjs] Updating collaborators store with ${remoteCollabs.length} remote users:`, remoteCollabs.map(c => c.username));
             useCollaborationStore.getState().setCollaborators(remoteCollabs);
           }
           

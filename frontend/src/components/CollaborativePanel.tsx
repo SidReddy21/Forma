@@ -43,11 +43,14 @@ export function CollaborativePanel() {
       isCurrentUser: true,
     };
 
-    const otherUsers = collaborators.map(user => ({
-      ...user,
-      color: getUserColor(user.id),
-      isCurrentUser: false,
-    }));
+    // Guard against undefined collaborators and filter out duplicates of current user
+    const otherUsers = (collaborators || [])
+      .filter(user => user && user.id && user.id !== userId) // Extra safety: exclude current user
+      .map(user => ({
+        ...user,
+        color: getUserColor(user.id),
+        isCurrentUser: false,
+      }));
 
     return [currentUser, ...otherUsers];
   }, [username, userId, collaborators]);
