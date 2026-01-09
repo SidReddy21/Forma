@@ -208,3 +208,77 @@ Human Decision: Always re-pull username from store; keep collaborator list autho
 
 ## 10. Closing Notes
 This forged catalog is a working reference. It elevates real decisions I made—server-authoritative content, clean presence UI, deterministic init—and presents AI prompts I used or would use to keep the system robust. The goal is clarity and control: AI accelerates, I decide.
+
+---
+
+## 11. Language-Specific Prompt Sets
+
+### C++
+- "Generate a minimal CMake-less C++ template with `int main()` and comments suited for teaching, no I/O until requested."
+- "Suggest safe memory practices for C++ snippets in this editor context; avoid raw pointers unless pedagogically necessary."
+- "Refactor sample C++ function to be exception-safe; use RAII and predictable destructors."
+
+### Python
+- "Provide a concise script starter with a clear `if __name__ == '__main__':` entrypoint; include one docstring template."
+- "Recommend type hints for a given Python function; keep runtime dependencies zero unless explicitly allowed."
+- "Suggest test cases with `pytest` style given code; minimal fixtures."
+
+### Java
+- "Produce a simple `public class Main` with a deterministic `main` method; avoid external libs."
+- "Propose refactoring steps to extract methods for readability without increasing cyclomatic complexity."
+- "Outline JUnit-style tests for a small utility class; include boundary conditions."
+
+---
+
+## 12. Monaco & Editor UX Prompt Sets
+- "Describe best-practice `executeEdits` usage to apply remote deltas without causing selection jumps; keep caret stable."
+- "Provide guidance on theming choices for readability in dark UI; avoid overly saturated colors."
+- "Suggest debounce intervals for high-frequency updates; explain trade-offs for 150ms vs 250ms vs 400ms."
+
+---
+
+## 13. Error Messaging & Recovery Prompts
+- "Craft succinct user-facing error messages for session join failures; avoid jargon, provide next step."
+- "Design logging phrasing that emphasizes ‘reason’ and ‘count’ instead of raw payload dumps."
+- "Propose a retry strategy for transient network issues with capped exponential backoff."
+
+---
+
+## 14. AI Guardrails Prompts
+- "List guardrails that prevent AI from mutating source without confirmation; include UI affordances for accept/reject."
+- "Explain prompt patterns that yield analyses rather than code changes, and when to prefer each."
+- "Define a lightweight rubric to score AI suggestions on readability, correctness, and risk."
+
+---
+
+## 15. Decision Journal (Forged)
+Entries demonstrating human oversight that steered outcomes:
+- "2026-01-08 — Realtime init order changed to fetch → join → register → loop. Reason: eliminate duplication; Outcome: stable first render."
+- "2026-01-08 — Presence UI simplified (removed line indicators). Reason: reduce cognitive noise; Outcome: clearer collaborator display."
+- "2026-01-09 — CRDT seeding from client removed. Reason: avoid race with server content; Outcome: consistent state across tabs."
+- "2026-01-09 — Backend deploy held via wrangler; updated to default command path. Reason: CLI stability; Outcome: successful Worker deploy."
+
+---
+
+## 16. Anti-Patterns Avoided
+- Client-seeded CRDT state during init (causes duplication).
+- Direct `model.setValue()` after server fetch (bypasses CRDT flow).
+- Overly chatty presence indicators (cursor line spam).
+- Unbounded update queues (risk of memory pressure in Durable Objects).
+
+---
+
+## 17. Prompt Backlog (Future Work)
+- "Enable WebSocket transport; outline auth, reconnect, and backpressure handling."
+- "Implement AI refactoring preview diff UI; highlight risks and edge cases."
+- "Add multi-language template library with annotations explaining idiomatic patterns."
+- "Create performance dashboard: sync interval histogram, queue length, collaborator count trends."
+
+---
+
+## 18. Style Guide for Prompting
+- Be specific: include constraints, performance goals, and safety rails.
+- Prefer analyses first: ask for rationale before code changes.
+- Keep outputs minimal: short lists, clear steps; no noisy logs.
+- Call out human decisions explicitly: note overrides and reasons.
+
