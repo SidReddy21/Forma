@@ -33,6 +33,13 @@ export default function App() {
         content: '// Start coding here...\n',
       });
       console.log('New session created successfully');
+      // Update URL with session ID after creation
+      const newSession = useSessionStore.getState().session;
+      if (newSession) {
+        const newUrl = `${window.location.origin}${window.location.pathname}?sessionId=${newSession.id}`;
+        window.history.replaceState({}, '', newUrl);
+        console.log('URL updated to:', newUrl);
+      }
     } catch (err) {
       console.error('Failed to create new session:', err);
       alert('Failed to create new session. Please try again.');

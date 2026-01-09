@@ -37,6 +37,13 @@ export function useRealtimeSync() {
         });
 
         const { content, collaborators, updates, timestamp } = response.data;
+        
+        console.log('Poll response:', { 
+          hasUpdates: updates?.length > 0, 
+          updateCount: updates?.length,
+          timestamp,
+          lastSync: syncStateRef.current.lastSync
+        });
 
         // Update collaborators list using store method directly
         if (collaborators && Array.isArray(collaborators) && collaborators.length > 0) {
@@ -54,11 +61,13 @@ export function useRealtimeSync() {
 
         // Apply remote updates
         if (updates && Array.isArray(updates) && updates.length > 0) {
+          console.log('Processing updates:', updates);
           updates.forEach((update: any) => {
+            console.log('Update:', update.type, 'from:', update.userId, 'me:', userId);
             if (update.type === 'edit' && update.userId !== userId) {
               // Update content if it changed and came from another user
-              if (update.newContent && update.newContent !== session.content) {
-                console.log('Applying remote edit from', update.userId);
+              if (update.newContent) {
+                console.log('Applying remote edit from', update.userId, 'content length:', update.newContent.length);
                 updateSessionContent(update.newContent);
                 // Update Monaco Editor directly
                 if (editorRef) {
@@ -67,6 +76,8 @@ export function useRealtimeSync() {
                   if (currentPosition) {
                     editorRef.setPosition(currentPosition);
                   }
+                } else {
+                  console.warn('No editor ref available');
                 }
               }
               // Record the change in stats
@@ -98,8 +109,10 @@ export function useRealtimeSync() {
   const sendEdit = async (newContent: string) => {
     if (!session) return;
 
+    const userId = syncStateRef.current.userId;
+    console.log('Sending edit:', { userId, contentLength: newContent.length });
+    
     try {
-      const userId = syncStateRef.current.userId;
       await api.post('/api/realtime', {
         sessionId: session.id,
         userId,
@@ -112,6 +125,7 @@ export function useRealtimeSync() {
           userId,
         },
       });
+      console.log('Edit sent successfully');
     } catch (error) {
       console.error('Failed to send edit:', error);
     }
