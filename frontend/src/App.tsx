@@ -22,7 +22,7 @@ export default function App() {
         console.error('Failed to join session from URL:', err);
       });
     }
-  }, [session, loading]);
+  }, [session, loading, joinSession]);
 
   const handleNewSession = useCallback(async () => {
     setIsCreating(true);

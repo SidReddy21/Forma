@@ -6,7 +6,11 @@ compatibility_date = "2024-12-18"
 [ai]
 binding = "AI"
 
-script_name = "codemeld"
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "codemeld-db"
+database_id = "ddb9cf83-4f5d-42cb-b094-5c2175911e09"
 
 # Durable Objects
 [[durable_objects.bindings]]
