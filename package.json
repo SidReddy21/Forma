@@ -20,7 +20,5 @@
     "typescript": "^5.3.3",
     "wrangler": "^3.114.16"
   },
-  "dependencies": {
-    "y-indexeddb": "^9.0.12"
-  }
+  "dependencies": {}
 }
