@@ -14,7 +14,7 @@ export default function App() {
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<'cpp' | 'python' | 'javascript' | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<'cpp' | 'python' | 'java' | null>(null);
 
   // Handle URL params to join existing session on load
   useEffect(() => {
@@ -40,7 +40,7 @@ export default function App() {
       const templates: Record<string, string> = {
         cpp: '#include <iostream>\nint main() {\n  // Start coding here...\n  return 0;\n}',
         python: '# Start coding here...\nprint("Hello, World!")',
-        javascript: '// Start coding here...\nconsole.log("Hello, World!");',
+        java: 'public class Main {\n  public static void main(String[] args) {\n    // Start coding here...\n    System.out.println("Hello, World!");\n  }\n}',
       };
 
       console.log(`[App] Creating new session with language: "${selectedLanguage}"`);
@@ -116,7 +116,7 @@ export default function App() {
           ) : (
             <div className="space-y-3">
               <div className="flex gap-2">
-                {(['cpp', 'python', 'javascript'] as const).map((lang) => (
+                {(['cpp', 'python', 'java'] as const).map((lang) => (
                   <button
                     key={lang}
                     onClick={() => setSelectedLanguage(lang)}
@@ -126,7 +126,7 @@ export default function App() {
                         : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
-                    {lang === 'cpp' ? 'C++' : lang === 'python' ? 'Python' : 'JavaScript'}
+                    {lang === 'cpp' ? 'C++' : lang === 'python' ? 'Python' : 'Java'}
                   </button>
                 ))}
               </div>
