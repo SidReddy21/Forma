@@ -43,7 +43,7 @@ export const useAIStore = create<AIStore>((set) => ({
       console.log('Analysis response:', response.data);
       
       // Ensure response has proper structure
-      const analysis: CodeAnalysisReport = {
+      const analysis: any = {
         sessionId: response.data.sessionId || sessionId,
         timestamp: response.data.timestamp || Date.now(),
         bugs: (response.data.bugs || []).map((bug: any) => ({
@@ -58,8 +58,11 @@ export const useAIStore = create<AIStore>((set) => ({
         testCoverage: 0,
         complexity: 'medium',
       };
+      if (response.data.execution) {
+        analysis.execution = response.data.execution;
+      }
       
-      set({ analysis, error: null });
+      set({ analysis: analysis as CodeAnalysisReport, error: null });
     } catch (error: any) {
       console.error('Failed to analyze code:', error);
       const errorMessage = error.response?.data?.error || error.message || 'Failed to analyze code';

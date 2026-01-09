@@ -71,6 +71,7 @@ export interface CodeAnalysisReport {
   })[];
   testCoverage: number;
   complexity: 'low' | 'medium' | 'high';
+  execution?: CodeExecutionInfo;
 }
 
 export interface RealtimeMessage {
@@ -102,4 +103,14 @@ export interface WorkflowResult {
   analysis: CodeAnalysisReport;
   generatedTests: string;
   documentation: string;
+}
+
+export interface CodeExecutionInfo {
+  failed: boolean;
+  exitCode: number | null;
+  output: string | null;
+  error: string | null;
+  language: string;
+  version: string;
+  timestamp: number;
 }

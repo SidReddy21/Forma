@@ -74,9 +74,27 @@ export class CodeAIService {
       console.log('Analyzing code, length:', code.length);
       // 1) Run the code first to collect compiler/runtime errors
       let executionBug: CodeAnalysisReport['bugs'][number] | null = null;
+      let execMeta: {
+        failed: boolean;
+        exitCode: number | null;
+        output: string | null;
+        error: string | null;
+        language: string;
+        version: string;
+        timestamp: number;
+      } | null = null;
       try {
         const exec = await executeWithPiston(code, language);
         const hadFailure = !!exec.error || (exec.meta.exitCode !== null && exec.meta.exitCode !== 0);
+        execMeta = {
+          failed: hadFailure,
+          exitCode: exec.meta.exitCode,
+          output: exec.output,
+          error: exec.error,
+          language: exec.meta.resolvedLanguage,
+          version: exec.meta.version,
+          timestamp: exec.meta.timestamp,
+        };
         if (hadFailure) {
           const lineFromErr = this.extractLineFromError(exec.error || '');
           executionBug = {
@@ -114,6 +132,9 @@ export class CodeAIService {
           if (executionBug) {
             parsed.bugs = [executionBug, ...parsed.bugs];
           }
+          if (execMeta) {
+            parsed.execution = execMeta;
+          }
           return parsed;
         }
       } catch (aiError) {
@@ -125,6 +146,9 @@ export class CodeAIService {
       const parsedFallback = this.parseAnalysisResponse(fallbackResponse);
       if (executionBug) {
         parsedFallback.bugs = [executionBug, ...parsedFallback.bugs];
+      }
+      if (execMeta) {
+        parsedFallback.execution = execMeta;
       }
       return parsedFallback;
     } catch (error) {

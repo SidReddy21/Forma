@@ -49,6 +49,51 @@ export function AIAssistant() {
         </motion.div>
       )}
 
+      {/* Execution Block */}
+      {analysis && (analysis as any).execution && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="bg-slate-700 p-3 rounded text-sm space-y-2"
+        >
+          <p className="text-blue-300 font-semibold">Execution</p>
+          {(() => {
+            const exec = (analysis as any).execution as {
+              failed: boolean;
+              exitCode: number | null;
+              output: string | null;
+              error: string | null;
+              language: string;
+              version: string;
+              timestamp: number;
+            };
+            const status = exec.failed ? 'Failed' : 'Succeeded';
+            return (
+              <div className="space-y-2">
+                <div className="flex gap-3 text-xs text-slate-300">
+                  <span><span className="text-slate-400">Status:</span> {status}</span>
+                  <span><span className="text-slate-400">Exit:</span> {exec.exitCode ?? 'n/a'}</span>
+                  <span><span className="text-slate-400">Runtime:</span> {exec.language}@{exec.version}</span>
+                  <span><span className="text-slate-400">At:</span> {new Date(exec.timestamp).toLocaleTimeString()}</span>
+                </div>
+                {exec.output && (
+                  <details className="bg-slate-800/70 rounded p-2">
+                    <summary className="text-slate-200 cursor-pointer select-none">Stdout</summary>
+                    <pre className="mt-2 text-xs whitespace-pre-wrap text-slate-300">{exec.output}</pre>
+                  </details>
+                )}
+                {exec.error && (
+                  <details className="bg-slate-800/70 rounded p-2">
+                    <summary className="text-red-300 cursor-pointer select-none">Stderr</summary>
+                    <pre className="mt-2 text-xs whitespace-pre-wrap text-red-200">{exec.error}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          })()}
+        </motion.div>
+      )}
+
       {/* Analysis Results */}
       {analysis && (
         <motion.div
