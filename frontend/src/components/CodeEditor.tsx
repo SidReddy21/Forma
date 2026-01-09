@@ -1,28 +1,54 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import { useSessionStore } from '../store/sessionStore';
 import { useEditorStore } from '../store/editorStore';
-import { useRealtimeSync } from '../hooks/useRealtimeSync';
+import { initYjsMonaco } from '../realtime/yjsProvider';
+import { useUserStore } from '../store/userStore';
 
 export function CodeEditor() {
   const { session, updateSessionContent } = useSessionStore();
   const { editorRef } = useEditorStore();
-  const { sendEdit } = useRealtimeSync();
+  const { username } = useUserStore();
+  const yjsHandleRef = React.useRef<any>(null);
 
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
       if (value && session) {
         updateSessionContent(value);
-        // Send to other collaborators
-        sendEdit(value);
+        // With Yjs, remote sync is handled by CRDT binding; no manual send
       }
     },
-    [session, updateSessionContent, sendEdit]
+    [session, updateSessionContent]
   );
 
   const handleEditorMount = (editor: any) => {
     useEditorStore.setState({ editorRef: editor });
+    if (session) {
+      // Initialize Yjs Monaco binding for robust realtime sync
+      yjsHandleRef.current = initYjsMonaco(editor, session.id, username);
+    }
   };
+
+  // Keep collaborator awareness in sync when username changes
+  useEffect(() => {
+    const handle = yjsHandleRef.current;
+    if (handle?.provider?.awareness && username) {
+      handle.provider.awareness.setLocalStateField('user', {
+        name: username,
+        color: '#3b82f6',
+      });
+    }
+  }, [username]);
+
+  // Cleanup Yjs binding on unmount or session change
+  useEffect(() => {
+    return () => {
+      try {
+        yjsHandleRef.current?.destroy?.();
+        yjsHandleRef.current = null;
+      } catch {}
+    };
+  }, [session?.id]);
 
   if (!session) return null;
 

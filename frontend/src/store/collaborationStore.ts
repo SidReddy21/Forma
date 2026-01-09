@@ -12,6 +12,7 @@ interface CollaborationStore {
   updateCollaborator: (id: string, updates: Partial<Collaborator>) => void;
   recordChange: () => void;
   clearCollaborators: () => void;
+  setCollaborators: (collaborators: Collaborator[]) => void;
 }
 
 export const useCollaborationStore = create<CollaborationStore>((set) => ({
@@ -50,4 +51,7 @@ export const useCollaborationStore = create<CollaborationStore>((set) => ({
     set(() => ({
       collaborators: [],
     })),
+
+  setCollaborators: (collaborators) =>
+    set(() => ({ collaborators })),
 }));
