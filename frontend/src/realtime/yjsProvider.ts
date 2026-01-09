@@ -38,11 +38,19 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     }
   }
 
-  // Create awareness for collaborative state (provided by IndexeddbPersistence)
-  const awareness = persistence.awareness;
-  awareness.setLocalStateField('user', {
-    name: username,
-    color: '#3b82f6',
+  // Initialize awareness after persistence is ready
+  let awareness: any = null;
+  persistence.whenSynced.then(() => {
+    awareness = persistence.awareness;
+    if (awareness) {
+      console.log(`[Yjs] Setting awareness for room "${roomId}" with username: "${username}"`);
+      awareness.setLocalStateField('user', {
+        name: username,
+        color: '#3b82f6',
+      });
+    }
+  }).catch((err) => {
+    console.error(`[Yjs] Error waiting for persistence sync:`, err);
   });
   
   // HTTP-based sync: every 30 seconds, sync local CRDT state to server
@@ -156,6 +164,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
 
   // Update collaborator store on awareness updates
   const updateCollaborators = () => {
+    if (!awareness) return; // Awareness not yet initialized
     const states = Array.from(awareness.getStates().values());
     const collabs = states
       .map((s: any, idx: number) => ({
@@ -172,8 +181,15 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     } catch {}
   };
 
-  awareness.on('update', updateCollaborators);
-  updateCollaborators();
+  // Listen for awareness updates once awareness is ready
+  persistence.whenSynced.then(() => {
+    if (awareness) {
+      awareness.on('update', updateCollaborators);
+      updateCollaborators();
+    }
+  }).catch((err) => {
+    console.error(`[Yjs] Error setting up awareness listener:`, err);
+  });
 
   const destroy = () => {
     clearInterval(httpSyncInterval);
