@@ -211,18 +211,20 @@ export default function App() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden gap-4 p-4">
-        {/* Editor */}
-        <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-          <CodeEditor />
-        </div>
-
-        {/* Right Panel */}
-        <div className="w-96 flex flex-col gap-4">
-          {/* Output Panel */}
-          <div className="h-48 bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
+        {/* Left: Editor + Bottom Terminal */}
+        <div className="flex-1 flex flex-col gap-3 min-w-0">
+          {/* Editor Area */}
+          <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 overflow-hidden min-h-0">
+            <CodeEditor />
+          </div>
+          {/* Bottom Terminal */}
+          <div className="h-56 bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
             <OutputPanel />
           </div>
+        </div>
 
+        {/* Right Panel: Collaboration + AI */}
+        <div className="w-96 flex flex-col gap-4">
           {/* Collaboration Panel */}
           <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
             <CollaborativePanel />

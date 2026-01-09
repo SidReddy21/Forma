@@ -360,6 +360,51 @@ async function handleWorkflows(request: Request, env: Env, ctx: ExecutionContext
   return addCORSHeaders(new Response('Bad request', { status: 400 }));
 }
 
+// Cache Piston language versions across requests in the same isolate
+const PISTON_VERSION_CACHE: Record<string, string> = {};
+
+async function resolvePistonVersion(lang: string): Promise<string> {
+  // Return cached version if available
+  if (PISTON_VERSION_CACHE[lang]) return PISTON_VERSION_CACHE[lang];
+
+  const runtimesRes = await fetch('https://emkc.org/api/v2/piston/runtimes', {
+    method: 'GET',
+  });
+  if (!runtimesRes.ok) throw new Error('Failed to query runtime versions');
+  const runtimes: Array<{ language: string; version: string }> = await runtimesRes.json();
+
+  // Piston uses identifiers like 'cpp', 'python', 'java'
+  const runtime = runtimes.find((r) => r.language.toLowerCase() === lang.toLowerCase());
+  if (!runtime) {
+    // Try a couple of aliases
+    const aliases: Record<string, string[]> = {
+      cpp: ['c++', 'gcc', 'g++', 'cc', 'clang++', 'clang'],
+      python: ['py', 'python3'],
+      java: [],
+    };
+    const alt = aliases[lang as keyof typeof aliases] || [];
+    const altRuntime = runtimes.find((r) => alt.includes(r.language.toLowerCase()));
+    if (!altRuntime) throw new Error(`No runtime found for language: ${lang}`);
+    PISTON_VERSION_CACHE[lang] = altRuntime.version;
+    return altRuntime.version;
+  }
+  PISTON_VERSION_CACHE[lang] = runtime.version;
+  return runtime.version;
+}
+
+function mapLanguageForPiston(language: string): { pistonLang: string; filename: string } {
+  switch (language) {
+    case 'cpp':
+      return { pistonLang: 'cpp', filename: 'main.cpp' };
+    case 'python':
+      return { pistonLang: 'python', filename: 'main.py' };
+    case 'java':
+      return { pistonLang: 'java', filename: 'Main.java' };
+    default:
+      return { pistonLang: language, filename: 'main.txt' };
+  }
+}
+
 async function handleExecute(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') {
     return addCORSHeaders(new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -369,8 +414,7 @@ async function handleExecute(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    const { code, language, sessionId } = await request.json();
-
+    const { code, language, sessionId, stdin } = await request.json();
     if (!code || !language) {
       return addCORSHeaders(new Response(JSON.stringify({ error: 'Code and language required' }), {
         status: 400,
@@ -378,129 +422,72 @@ async function handleExecute(request: Request, env: Env): Promise<Response> {
       }));
     }
 
-    // Note: Cloudflare Workers has limited code execution capabilities
-    // This implementation provides simulated execution with pattern matching
-    let output = '';
-    let error = '';
+    const { pistonLang, filename } = mapLanguageForPiston(language);
+    // Resolve the version from Piston once, then cache
+    const version = await resolvePistonVersion(pistonLang);
 
-    if (language === 'python') {
-      // Simulate Python execution with basic pattern matching
-      try {
-        // Check for print statements
-        const printMatches = code.match(/print\((.*?)\)/g) || [];
-        for (const match of printMatches) {
-          const content = match.replace(/print\((.*?)\)/, '$1');
-          // Remove quotes and f-string prefixes
-          let value = content.replace(/^[fr]?['"`]|['"`]$/g, '');
-          // Handle simple variables and expressions
-          if (value === 'x') output += '10\n';
-          else if (value === 'y') output += '20\n';
-          else if (value.includes('+')) {
-            const parts = value.split('+').map((p: string) => {
-              const p_trim = p.trim();
-              if (p_trim === 'x') return '10';
-              if (p_trim === 'y') return '20';
-              return p_trim.match(/^\d+$/) ? p_trim : '0';
-            });
-            output += String(eval(parts.join('+'))).trim() + '\n';
-          } else if (value.match(/^\d+$/)) {
-            output += value + '\n';
-          } else {
-            output += value.replace(/['"]/g, '') + '\n';
-          }
-        }
+    // Prepare execution payload for Piston API
+    const payload = {
+      language: pistonLang,
+      version,
+      files: [
+        {
+          name: filename,
+          content: code,
+        },
+      ],
+      stdin: typeof stdin === 'string' ? stdin : undefined,
+      args: [],
+      compile_timeout: 10000,
+      run_timeout: 10000,
+      compile_memory_limit: -1,
+      run_memory_limit: -1,
+    };
 
-        // Check for syntax errors
-        if (code.includes('def ') && !code.includes(':')) {
-          error = 'SyntaxError: invalid syntax - missing colon after def';
-        } else if (code.match(/\s=\s/i) && !code.includes('=')) {
-          error = 'SyntaxError: invalid assignment';
-        }
+    const execRes = await fetch('https://emkc.org/api/v2/piston/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
 
-        if (!output && !error && !printMatches.length) {
-          output = '(No output)\n';
-        }
-      } catch (e) {
-        error = `RuntimeError: ${String(e)}`;
-      }
-    } else if (language === 'cpp') {
-      // Simulate C++ execution
-      try {
-        // Check for std::cout statements
-        const coutMatches = code.match(/std::cout\s*<<\s*([^;]+);?/g) || [];
-        for (const match of coutMatches) {
-          const content = match.replace(/std::cout\s*<<\s*([^;]+);?/, '$1');
-          let value = content.trim().replace(/^["']|["']$/g, '');
-          if (value === 'x') output += '10\n';
-          else if (value === 'y') output += '20\n';
-          else if (value.match(/^\d+$/)) {
-            output += value + '\n';
-          } else {
-            output += value + '\n';
-          }
-        }
-
-        // Check for common C++ errors
-        if (code.includes('int x = y;') && !code.includes('int y')) {
-          error = 'CompilationError: undefined reference to "y"';
-        } else if (code.match(/new\s+\w+/) && !code.match(/delete\s+\w+/)) {
-          output += '[Warning: Possible memory leak detected - memory allocated with new but never deleted]\n';
-        }
-
-        if (!output && !error && !coutMatches.length) {
-          output = '(No output)\n';
-        }
-      } catch (e) {
-        error = `ExecutionError: ${String(e)}`;
-      }
-    } else if (language === 'java') {
-      // Simulate Java execution
-      try {
-        // Check for System.out.println statements
-        const printMatches = code.match(/System\.out\.println\((.*?)\);/g) || [];
-        for (const match of printMatches) {
-          const content = match.replace(/System\.out\.println\((.*?)\);/, '$1');
-          let value = content.trim().replace(/^["']|["']$/g, '');
-          if (value === 'x') output += '10\n';
-          else if (value === 'y') output += '20\n';
-          else if (value.match(/^\d+$/)) {
-            output += value + '\n';
-          } else {
-            output += value + '\n';
-          }
-        }
-
-        // Check for common Java errors
-        if (!code.includes('public static void main')) {
-          error = 'Error: main method not found in class';
-        } else if (code.includes('new String') && !code.includes('= ')) {
-          error = 'SyntaxError: invalid initialization';
-        }
-
-        if (!output && !error && !printMatches.length) {
-          output = '(No output)\n';
-        }
-      } catch (e) {
-        error = `ExecutionError: ${String(e)}`;
-      }
-    } else {
-      error = `Unsupported language: ${language}`;
+    if (!execRes.ok) {
+      const text = await execRes.text();
+      throw new Error(`Execution API error (${execRes.status}): ${text}`);
     }
 
-    return addCORSHeaders(new Response(JSON.stringify({
-      sessionId,
+    const execJson: any = await execRes.json();
+    const compile = execJson.compile || {};
+    const run = execJson.run || {};
+
+    // Combine outputs similar to a regular compiler toolchain
+    const compileStdout = compile.stdout || '';
+    const compileStderr = compile.stderr || '';
+    const runStdout = run.stdout || '';
+    const runStderr = run.stderr || '';
+
+    const output = [compileStdout, runStdout].filter(Boolean).join('');
+    const error = [compileStderr, runStderr].filter(Boolean).join('');
+
+    const meta = {
       language,
-      output: output || null,
-      error: error || null,
+      resolvedLanguage: pistonLang,
+      version,
+      exitCode: typeof run.code === 'number' ? run.code : (typeof compile.code === 'number' ? compile.code : null),
+      signal: run.signal || null,
       timestamp: Date.now(),
-    }), {
+      sessionId: sessionId || null,
+    };
+
+    return addCORSHeaders(new Response(JSON.stringify({ output: output || null, error: error || null, meta }), {
       headers: { 'Content-Type': 'application/json' },
     }));
   } catch (error) {
     console.error('Execute error:', error);
     return addCORSHeaders(new Response(JSON.stringify({
-      error: `Execution service error: ${String(error)}`,
       output: null,
+      error: `Execution service error: ${String(error)}`,
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
