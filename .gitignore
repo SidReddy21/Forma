@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+/.nyc_output
+
+# Production
+/build
+/dist
+
+# Misc
+.DS_Store
+.env
+.env.local
+.env.*.local
+.npmrc
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+.project
+.classpath
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Cloudflare & Wrangler
+.wrangler/
+.env.wrangler
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Lock files (optional - comment out if you want to commit)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

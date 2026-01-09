@@ -1,0 +1,135 @@
+import React, { useState, useCallback, useEffect } from 'react';
+import { CodeEditor } from './components/CodeEditor';
+import { CollaborativePanel } from './components/CollaborativePanel';
+import { AIAssistant } from './components/AIAssistant';
+import { useSessionStore } from './store/sessionStore';
+import { motion } from 'framer-motion';
+import { Copy, Check } from 'lucide-react';
+
+export default function App() {
+  const { session, createSession, joinSession } = useSessionStore();
+  const [showAI, setShowAI] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  // Handle URL params to join existing session on load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('sessionId');
+    if (sessionId && !session) {
+      joinSession(sessionId);
+    }
+  }, []);
+
+  const handleNewSession = useCallback(async () => {
+    await createSession({
+      name: `Session-${Date.now()}`,
+      language: 'typescript',
+      content: '',
+    });
+  }, [createSession]);
+
+  const handleCopyShareLink = useCallback(() => {
+    if (session) {
+      const shareUrl = `${window.location.origin}?sessionId=${session.id}`;
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [session]);
+
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center w-full h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-8"
+        >
+          <div>
+            <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">
+              CodeMeld
+            </h1>
+            <p className="text-xl text-slate-400">
+              AI-Powered Collaborative Code Editor
+            </p>
+          </div>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleNewSession}
+            className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-purple-500/50 transition-all"
+          >
+            Start Collaborating
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col w-full h-screen bg-slate-900 text-slate-100">
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-blue-400">{session.name}</h1>
+          <p className="text-sm text-slate-400">ID: {session.id.substring(0, 12)}...</p>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleCopyShareLink}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check size={18} />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy size={18} />
+                Share Link
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setShowAI(!showAI)}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+          >
+            {showAI ? '✓' : ''} AI Assistant
+          </button>
+          <button
+            onClick={handleNewSession}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+          >
+            New Session
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex flex-1 overflow-hidden gap-4 p-4">
+        {/* Editor */}
+        <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+          <CodeEditor />
+        </div>
+
+        {/* Right Panel */}
+        <div className="w-80 flex flex-col gap-4">
+          {/* Collaboration Panel */}
+          <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
+            <CollaborativePanel />
+          </div>
+
+          {/* AI Assistant */}
+          {showAI && (
+            <div className="flex-1 bg-slate-800 rounded-lg border border-slate-700 p-4 overflow-hidden">
+              <AIAssistant />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

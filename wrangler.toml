@@ -1,0 +1,13 @@
+name = "codemeld"
+main = "backend/src/index.ts"
+compatibility_date = "2024-12-18"
+
+# AI Binding for Cloudflare Workers AI
+[ai]
+binding = "AI"
+
+script_name = "codemeld"
+
+# Trigger for Workflows - cron format
+[triggers]
+crons = ["0 */6 * * *"]
