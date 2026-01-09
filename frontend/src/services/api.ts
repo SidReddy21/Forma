@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://codemeld.sidreddypleaseworktesting.workers.dev';
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://vortex-code.sidreddypleaseworktesting.workers.dev';
 
 const api = axios.create({
   baseURL: apiBaseUrl,
