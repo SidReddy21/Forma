@@ -34,6 +34,17 @@ export interface CodeChange {
   timestamp: number;
 }
 
+export interface Operation {
+  type: 'insert' | 'delete' | 'replace';
+  position: { line: number; column: number };
+  // For insert/replace
+  content?: string;
+  // For delete length; for replace, oldLength indicates replaced text length
+  length?: number;
+  oldLength?: number;
+  baseVersion?: number; // client-side base version used when generating op
+}
+
 export interface AICompletion {
   id: string;
   context: string;
@@ -76,6 +87,7 @@ export interface DurableObjectState {
   changeHistory: CodeChange[];
   currentContent: string;
   locks: Map<string, number>; // userId -> timestamp
+  version?: number; // monotonically increasing content version
 }
 
 export interface WorkflowPayload {

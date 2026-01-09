@@ -11,6 +11,7 @@ interface SyncState {
   heartbeatInterval: NodeJS.Timeout | null;
   userId: string;
   lastRemoteContent: string;
+  version: number;
 }
 
 export function useRealtimeSync() {
@@ -23,6 +24,7 @@ export function useRealtimeSync() {
     heartbeatInterval: null,
     userId: `user-${Math.random().toString(36).substr(2, 9)}`,
     lastRemoteContent: '',
+    version: 0,
   });
 
   useEffect(() => {
@@ -59,7 +61,17 @@ export function useRealtimeSync() {
           },
         });
 
-        const { content, collaborators, updates } = response.data;
+        const { content, collaborators, updates, version } = response.data;
+        // Track authoritative version and content from server
+        if (typeof version === 'number') {
+          syncStateRef.current.version = version;
+        }
+        if (typeof content === 'string') {
+          // Initialize lastRemoteContent from server if empty
+          if (syncStateRef.current.lastRemoteContent === '') {
+            syncStateRef.current.lastRemoteContent = content;
+          }
+        }
         
         // Update collaborators
         if (collaborators && Array.isArray(collaborators)) {
@@ -136,6 +148,7 @@ export function useRealtimeSync() {
     // Compute the diff to create an operation
     const operation = computeOperation(oldContent, newContent);
     if (!operation) return; // No change
+    operation.baseVersion = syncStateRef.current.version;
     
     try {
       // Send operation instead of full content
@@ -153,10 +166,27 @@ export function useRealtimeSync() {
       });
       // Update local tracking
       syncStateRef.current.lastRemoteContent = newContent;
+      syncStateRef.current.version = (syncStateRef.current.version || 0) + 1;
       // Touch heartbeat on edit
       try { await api.post('/api/realtime', { sessionId: session.id, userId, type: 'join', username }, { params: { sessionId: session.id, userId } }); } catch {}
-    } catch (error) {
-      console.error('Failed to send edit:', error);
+    } catch (error: unknown) {
+      // Handle version conflicts from server (Axios error shape)
+      const axiosError = error as { response?: { status?: number; data?: any } };
+      if (axiosError?.response?.status === 409) {
+        const data = axiosError.response?.data;
+        if (data && typeof data.content === 'string' && typeof data.version === 'number') {
+          // Update to latest server state, recompute op against it on next change
+          syncStateRef.current.lastRemoteContent = data.content;
+          syncStateRef.current.version = data.version;
+          if (editorRef) {
+            const currentPosition = editorRef.getPosition();
+            editorRef.setValue(data.content);
+            if (currentPosition) editorRef.setPosition(currentPosition);
+          }
+        }
+      } else {
+        console.error('Failed to send edit:', error);
+      }
     }
   };
 

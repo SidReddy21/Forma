@@ -3,7 +3,7 @@
  * Manages collaborative editing sessions with conflict-free synchronization
  */
 
-import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage } from '../types';
+import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage, Operation } from '../types';
 
 export class SessionManager {
   private state: SessionStateShape;
@@ -21,6 +21,7 @@ export class SessionManager {
       changeHistory: [],
       currentContent: '',
       locks: new Map(),
+      version: 0,
     };
   }
 
@@ -180,35 +181,75 @@ export class SessionManager {
   }
 
   private async handleBroadcast(request: Request): Promise<Response> {
-    // Handle incoming operation/edit message
+    // Handle incoming operation/edit/join message
     const message = (await request.json()) as any;
-    
-    // Add to pending updates queue for polling clients
-    this.pendingUpdates.push({
-      ...message,
-      timestamp: Date.now(),
-    });
 
-    // Keep only last 100 updates
-    if (this.pendingUpdates.length > 100) {
-      this.pendingUpdates.shift();
+    // If join with username updates, refresh collaborator entry
+    if (message.type === 'join' && message.userId) {
+      const existing = this.state.collaborators.get(message.userId);
+      if (existing) {
+        existing.username = message.username || existing.username;
+        existing.lastSeen = Date.now();
+        existing.isActive = true;
+        this.state.collaborators.set(message.userId, existing);
+        await this.persistState();
+      }
     }
 
     // Persist if it's an operation
     if (message.type === 'operation' && message.operation) {
+      const op: Operation = message.operation as Operation;
+      const baseVersion = typeof op.baseVersion === 'number' ? op.baseVersion : undefined;
+      if (baseVersion !== undefined && baseVersion !== this.state.version) {
+        // Version conflict: return 409 with latest content and version
+        return new Response(
+          JSON.stringify({
+            conflict: true,
+            version: this.state.version,
+            content: this.state.currentContent,
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
       // Apply operation to current content
-      this.state.currentContent = this.applyOperationToContent(this.state.currentContent, message.operation);
+      this.state.currentContent = this.applyOperationToContent(this.state.currentContent, op);
+      this.state.version = (this.state.version || 0) + 1;
+
       this.state.changeHistory.push({
         id: crypto.randomUUID(),
         userId: message.userId,
         sessionId: this.state.sessionId,
-        type: message.operation.type,
-        position: message.operation.position,
-        content: message.operation.content || '',
+        type: op.type,
+        position: op.position,
+        content: op.content || '',
         timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
       });
+
       await this.persistState();
+
+      // Add to pending updates queue for polling clients with version
+      this.pendingUpdates.push({
+        type: 'operation',
+        userId: message.userId,
+        operation: op,
+        version: this.state.version,
+        timestamp: Date.now(),
+      });
+      if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
+
+      return new Response(
+        JSON.stringify({ queued: true, version: this.state.version }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
     }
+
+    // Default: enqueue message for clients (presence/cursor)
+    this.pendingUpdates.push({
+      ...message,
+      timestamp: Date.now(),
+    });
+    if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
 
     return new Response(JSON.stringify({ queued: true }), {
       headers: { 'Content-Type': 'application/json' },
@@ -227,6 +268,7 @@ export class SessionManager {
     return new Response(
       JSON.stringify({
         content: this.state.currentContent,
+        version: this.state.version || 0,
         collaborators: Array.from(this.state.collaborators.values()).map((c) => ({
           id: c.id,
           username: c.username,
@@ -358,6 +400,7 @@ export class SessionManager {
         ...parsed,
         collaborators: new Map(parsed.collaborators),
         locks: new Map(parsed.locks),
+        version: typeof parsed.version === 'number' ? parsed.version : 0,
       };
     }
   }
@@ -369,6 +412,7 @@ export class SessionManager {
         ...this.state,
         collaborators: Array.from(this.state.collaborators.entries()),
         locks: Array.from(this.state.locks.entries()),
+        version: this.state.version || 0,
       })
     );
   }
