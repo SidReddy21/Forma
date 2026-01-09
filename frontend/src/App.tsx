@@ -14,7 +14,7 @@ export default function App() {
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<'cpp' | 'python' | 'javascript'>('javascript');
+  const [selectedLanguage, setSelectedLanguage] = useState<'cpp' | 'python' | 'javascript' | null>(null);
 
   // Handle URL params to join existing session on load
   useEffect(() => {
@@ -30,6 +30,11 @@ export default function App() {
   }, [session, loading, joinSession]);
 
   const handleNewSession = useCallback(async () => {
+    if (!selectedLanguage) {
+      alert('Please select a language first');
+      return;
+    }
+
     setIsCreating(true);
     try {
       const templates: Record<string, string> = {
@@ -145,7 +150,12 @@ export default function App() {
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => window.history.pushState({}, '', window.location.pathname)}
+            onClick={() => {
+              // Reset to home: clear session state, URL, and language selection
+              useSessionStore.setState({ session: null });
+              setSelectedLanguage(null);
+              window.history.pushState({}, '', window.location.pathname);
+            }}
             className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors text-sm font-semibold"
           >
             Home
