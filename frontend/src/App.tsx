@@ -7,9 +7,10 @@ import { motion } from 'framer-motion';
 import { Copy, Check } from 'lucide-react';
 
 export default function App() {
-  const { session, joinSession, loading, error } = useSessionStore();
+  const { session, createSession, joinSession, loading, error } = useSessionStore();
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Handle URL params to join existing session on load
   useEffect(() => {
@@ -22,6 +23,27 @@ export default function App() {
       });
     }
   }, [session, loading, joinSession]);
+
+  const handleNewSession = useCallback(async () => {
+    setIsCreating(true);
+    try {
+      await createSession({
+        name: `Session-${Date.now()}`,
+        language: 'typescript',
+        content: '// Start coding here...\n',
+      });
+      const newSession = useSessionStore.getState().session;
+      if (newSession) {
+        const newUrl = `${window.location.origin}${window.location.pathname}?sessionId=${newSession.id}`;
+        window.history.replaceState({}, '', newUrl);
+      }
+    } catch (err) {
+      console.error('Failed to create new session:', err);
+      alert('Failed to create new session. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  }, [createSession]);
 
   const handleCopyShareLink = useCallback(() => {
     if (!session || !session.id) {
@@ -78,32 +100,20 @@ export default function App() {
             </motion.div>
           )}
 
-          {loading ? (
+          {loading || isCreating ? (
             <div className="flex flex-col items-center gap-4">
               <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-slate-400">Loading session...</p>
+              <p className="text-slate-400">{isCreating ? 'Creating session...' : 'Loading session...'}</p>
             </div>
           ) : (
             <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Paste session ID or full link"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    const value = (e.target as HTMLInputElement).value.trim();
-                    const sessionId = value.includes('sessionId=') 
-                      ? new URLSearchParams(value.includes('?') ? value.substring(value.indexOf('?') + 1) : '')?.get('sessionId') 
-                      : value;
-                    if (sessionId) {
-                      setIsCreating(true);
-                      joinSession(sessionId).finally(() => setIsCreating(false));
-                      (e.target as HTMLInputElement).value = '';
-                    }
-                  }
-                }}
-                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-sm text-slate-500 text-center">Press Enter to join a session</p>
+              <button
+                onClick={handleNewSession}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+              >
+                Start Coding (Create New Session)
+              </button>
+              <p className="text-sm text-slate-500 text-center">Or open a shared link with a session ID</p>
             </div>
           )}
         </motion.div>
@@ -142,6 +152,12 @@ export default function App() {
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
           >
             {showAI ? '✓' : ''} AI Assistant
+          </button>
+          <button
+            onClick={handleNewSession}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+          >
+            New Session
           </button>
         </div>
       </header>
