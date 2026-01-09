@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CodeEditor } from './components/CodeEditor';
 import { CollaborativePanel } from './components/CollaborativePanel';
 import { AIAssistant } from './components/AIAssistant';

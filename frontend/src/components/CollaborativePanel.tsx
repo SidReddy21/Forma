@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useCollaborationStore } from '../store/collaborationStore';
 import { useUserStore } from '../store/userStore';
 import { Users } from 'lucide-react';

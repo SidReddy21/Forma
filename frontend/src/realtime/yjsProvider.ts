@@ -30,30 +30,10 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   const text = doc.getText('monaco');
   const model: monaco.editor.ITextModel = editor.getModel();
 
-  // Set initial content into CRDT if empty
-  // Only insert model content if we're creating a new session (empty doc)
-  // For existing sessions, let the server sync provide the authoritative content
-  if (text.length === 0 && typeof model?.getValue === 'function') {
-    const content = model.getValue();
-    if (content.length > 0) {
-      console.log(`[Yjs] Initializing Yjs with ${content.length} chars from editor (new session)`);
-      text.insert(0, content);
-    }
-  }
+  // Do NOT seed Yjs from the editor model at init.
+  // Always fetch authoritative server content to avoid duplication.
 
-  // Create awareness for collaborative state using doc.awareness
-  const awareness = doc.awareness;
-  if (awareness) {
-    console.log(`[Yjs] Awareness initialized for room "${roomId}"`);
-    awareness.setLocalState({
-      user: {
-        name: username,
-        color: '#3b82f6',
-      },
-      cursor: { line: 0, column: 0 },
-    });
-    console.log(`[Yjs] Set local user state: "${username}"`);
-  }
+  // Awareness (presence) is handled via backend polling; skip y-protocol awareness here
   
   // Aggressive polling: sync every 2 seconds for responsive collaboration
   let lastSyncTime = Date.now();
@@ -81,7 +61,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
             text.insert(0, response.data.content);
             console.log(`[Yjs] Applied initial server content: ${response.data.content.length} chars`);
             lastSyncedContent = response.data.content;
-
+            
             // Do NOT set editor value directly here.
             // Let Yjs -> Monaco binding update the editor to avoid duplication.
           }
@@ -99,7 +79,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
               isActive: c.isActive,
               lastSeen: c.lastSeen || Date.now(),
             }));
-          console.log(`[Yjs] Initial collaborators: ${remoteCollabs.length} remote users`, remoteCollabs.map(c => c.username));
+          console.log(`[Yjs] Initial collaborators: ${remoteCollabs.length} remote users`);
           useCollaborationStore.getState().setCollaborators(remoteCollabs);
         }
       }
@@ -191,7 +171,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
       const currentUsername = useUserStore.getState().username; // Always get fresh username
       
       // Always sync awareness state for presence
-      const awarenessUpdate = awareness ? Array.from(awareness.getLocalState() ? [awareness.getLocalState()] : []) : [];
+      const awarenessUpdate: any[] = [];
       
       // Sync if content changed OR periodically for awareness OR username changed
       const shouldSync = currentContent !== lastSyncedContent || now - lastSyncTime > 10000 || currentUsername !== lastSyncedUsername;
@@ -247,7 +227,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
                 lastSeen: c.lastSeen || Date.now(),
               }));
             
-            console.log(`[Yjs] Updating collaborators store with ${remoteCollabs.length} remote users:`, remoteCollabs.map(c => c.username));
+            console.log(`[Yjs] Updating collaborators store with ${remoteCollabs.length} remote users`);
             useCollaborationStore.getState().setCollaborators(remoteCollabs);
           }
           
@@ -362,32 +342,12 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
     }
   });
 
-  // Update collaborator store - NOTE: this is now primarily done via backend sync
-  // The awareness system is kept for potential future use with WebSocket sync
-  const updateCollaborators = () => {
-    // Collaborators are now updated directly from backend in the HTTP sync loop
-    // This function is kept for potential local awareness updates
-    console.log(`[Yjs] Local awareness update triggered (now using backend collaborator list)`);
-  };
-
-  // Listen for awareness updates (mostly for local state changes)
-  if (awareness) {
-    try {
-      awareness.on('update', updateCollaborators);
-      console.log(`[Yjs] Awareness listener attached for room "${roomId}"`);
-    } catch (err) {
-      console.error(`[Yjs] Error attaching awareness listener:`, err);
-    }
-  } else {
-    console.warn(`[Yjs] Awareness not available, skipping listener setup`);
-  }
+  // Presence updates handled via backend sync loop; no local awareness listeners
 
   const destroy = () => {
     clearInterval(httpSyncInterval);
     window.removeEventListener('beforeunload', beforeUnloadHandler);
-    if (awareness) {
-      awareness.off('update', updateCollaborators);
-    }
+    // No awareness listeners to clean up
     disposable.dispose();
     persistence?.destroy();
     doc.destroy();
