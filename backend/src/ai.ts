@@ -290,8 +290,6 @@ For each suggestion, explain:
           response: JSON.stringify({
             bugs: analysis.bugs,
             improvements: analysis.improvements,
-            testCoverage: analysis.testCoverage,
-            complexity: analysis.complexity,
           }),
         },
       };
@@ -316,11 +314,9 @@ For each suggestion, explain:
   private analyzeCodeByLanguage(code: string, language: string, lines: string[]): any {
     const bugs: any[] = [];
     const improvements: any[] = [];
-    let complexity = 'low';
-    let testCoverage = 0.2;
 
     if (!code || lines.length === 0) {
-      return { bugs: [{ line: 1, severity: 'info', message: 'Code sample too short for meaningful analysis', suggestion: 'Write more code (at least 3-4 lines of actual logic)' }], improvements: [], testCoverage: 0, complexity: 'low' };
+      return { bugs: [{ line: 1, severity: 'info', message: 'Code sample too short for meaningful analysis', suggestion: 'Write more code (at least 3-4 lines of actual logic)' }], improvements: [] };
     }
 
     if (language === 'python') {
@@ -333,14 +329,6 @@ For each suggestion, explain:
       this.analyzeGeneric(code, lines, bugs, improvements);
     }
 
-    // Calculate complexity based on lines of code
-    if (lines.length > 50) complexity = 'high';
-    else if (lines.length > 15) complexity = 'medium';
-    else complexity = 'low';
-
-    // Estimate test coverage
-    testCoverage = Math.min(0.9, 0.2 + (lines.length * 0.01));
-
     // Add general improvements if none found
     if (improvements.length === 0) {
       improvements.push({ category: 'Best Practices', suggestions: ['Review error handling', 'Consider edge cases'] });
@@ -351,7 +339,7 @@ For each suggestion, explain:
       bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding tests for edge cases.' });
     }
 
-    return { bugs, improvements, testCoverage, complexity };
+    return { bugs, improvements };
   }
 
   private analyzePython(code: string, lines: string[], bugs: any[], improvements: any[]): void {

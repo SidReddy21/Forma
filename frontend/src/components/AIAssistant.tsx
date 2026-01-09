@@ -77,12 +77,6 @@ export function AIAssistant() {
               ))}
             </div>
           )}
-          <div className="text-blue-400 font-semibold">
-            Test Coverage: {((analysis.testCoverage || 0) * 100).toFixed(0)}%
-          </div>
-          <div className="text-purple-400 text-xs">
-            Complexity: <span className="uppercase font-semibold">{analysis.complexity || 'unknown'}</span>
-          </div>
         </motion.div>
       )}
 

@@ -164,6 +164,37 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   joinSession();
   registerUser();
   
+  // Function to trigger immediate sync (used when username changes)
+  const triggerImmediateSync = async () => {
+    try {
+      const now = Date.now();
+      const currentContent = doc.getText('monaco').toString();
+      const currentUsername = useUserStore.getState().username;
+      
+      console.log(`[Yjs] Immediate sync triggered - username: "${currentUsername}"`);
+      
+      const yState = Y.encodeStateAsUpdate(doc);
+      await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
+        type: 'sync',
+        content: currentContent,
+        yState: Array.from(yState),
+        awarenessState: [],
+        timestamp: now,
+        username: currentUsername,
+      });
+      
+      lastSyncedContent = currentContent;
+      lastSyncedUsername = currentUsername;
+      lastSyncTime = now;
+      console.log(`[Yjs] Immediate sync completed - username: "${currentUsername}"`);
+    } catch (err) {
+      console.error('[Yjs] Immediate sync error:', err);
+    }
+  };
+
+  // Store the triggerImmediateSync function globally for access from other modules
+  (window as any).__yjsTriggerSync = triggerImmediateSync;
+  
   const httpSyncInterval = setInterval(async () => {
     try {
       const now = Date.now();

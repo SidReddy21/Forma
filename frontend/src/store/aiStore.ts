@@ -55,8 +55,8 @@ export const useAIStore = create<AIStore>((set) => ({
         improvements: (response.data.improvements || []).map((imp: any) => 
           typeof imp === 'string' ? { category: 'General', suggestions: [imp] } : imp
         ),
-        testCoverage: response.data.testCoverage ?? 0,
-        complexity: (response.data.complexity || 'medium') as 'low' | 'medium' | 'high',
+        testCoverage: 0,
+        complexity: 'medium',
       };
       
       set({ analysis, error: null });

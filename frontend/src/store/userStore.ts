@@ -22,5 +22,12 @@ export const useUserStore = create<UserStore>((set) => ({
   setUsername: (name) => {
     localStorage.setItem('username', name);
     set({ username: name });
+    
+    // Trigger immediate sync when username changes so other users see the update
+    if ((window as any).__yjsTriggerSync) {
+      (window as any).__yjsTriggerSync().catch((err: Error) => {
+        console.error('Failed to trigger immediate sync on username change:', err);
+      });
+    }
   },
 }));
