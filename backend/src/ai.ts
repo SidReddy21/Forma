@@ -343,11 +343,79 @@ For each suggestion, explain:
   }
 
   private analyzePython(code: string, lines: string[], bugs: any[], improvements: any[]): void {
+    // Check for indentation errors first (critical issues)
+    const rawLines = code.split('\n');
+    let prevIndent = 0;
+    let inFunction = false;
+    let functionLineNum = 0;
+    
+    for (let idx = 0; idx < rawLines.length; idx++) {
+      const line = rawLines[idx];
+      const lineNum = idx + 1;
+      const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length || 0;
+      const trimmed = line.trim();
+      
+      if (!trimmed || trimmed.startsWith('#')) {
+        prevIndent = leadingSpaces;
+        continue;
+      }
+      
+      // Detect function definition
+      if (trimmed.startsWith('def ')) {
+        inFunction = true;
+        functionLineNum = lineNum;
+        prevIndent = leadingSpaces;
+        continue;
+      }
+      
+      // Check indentation consistency
+      if (inFunction && leadingSpaces > 0 && leadingSpaces <= prevIndent && !trimmed.startsWith('def ') && !trimmed.startsWith('class ')) {
+        // Body statements after function def should be indented more
+        if (functionLineNum > 0 && lineNum > functionLineNum && !trimmed.match(/^(if|elif|else|for|while|try|except|finally|with)/)) {
+          const prevTrimmed = rawLines[idx - 1]?.trim() || '';
+          if (!prevTrimmed.endsWith(':') && prevTrimmed && !prevTrimmed.startsWith('#')) {
+            // This might be an indentation error
+            if (leadingSpaces === 0 && !trimmed.match(/^[a-zA-Z_]/)) {
+              // Statement at module level when it should be indented
+              bugs.push({
+                line: lineNum,
+                severity: 'error',
+                message: 'Indentation error: statement should be indented',
+                suggestion: `Line "${trimmed}" should be indented under the function or block above it`
+              });
+            }
+          }
+        }
+      }
+      
+      prevIndent = leadingSpaces;
+    }
+    
+    // Line-by-line analysis
     lines.forEach((line, idx) => {
       const lineNum = idx + 1;
       const trimmed = line.trim();
       
       if (!trimmed || trimmed.startsWith('#')) return;
+      
+      // Critical: Division by zero
+      if (trimmed.includes('/ ') || trimmed.includes('/0')) {
+        const nextLine = lines[idx + 1]?.trim() || '';
+        if (!nextLine.match(/if.*len\(|if.*length|if.*!= 0/) && !line.includes('if') && !line.includes('try')) {
+          improvements.push({
+            category: 'Error Handling',
+            suggestions: [`Add error handling for division at line ${lineNum} (check for zero divisor)`]
+          });
+        }
+      }
+      
+      // Check for empty list/division issues
+      if (trimmed.includes('len(') && lines[idx + 1]?.trim().includes('/')) {
+        improvements.push({
+          category: 'Robustness',
+          suggestions: [`Handle case where collection is empty before division at line ${lineNum + 1}`]
+        });
+      }
       
       // Check for common Python issues
       if (trimmed.match(/^\s*print\s*\(/)) {
@@ -388,10 +456,26 @@ For each suggestion, explain:
         });
       }
       
+      // Check for missing docstrings
       if (trimmed.match(/def\s+\w+\(/) && !code.substring(code.indexOf(trimmed)).match(/:\s*"""[\s\S]*?"""|:\s*'''[\s\S]*?'''/)) {
         improvements.push({ category: 'Documentation', suggestions: [`Add docstring to function at line ${lineNum}`] });
       }
+      
+      // Check for inefficient patterns
+      if (trimmed.includes('for ') && trimmed.includes(' in ') && lines[idx + 1]?.includes('+=')) {
+        // Detect manual loops that could use sum()
+        if (trimmed.includes('total') || trimmed.includes('sum_') || trimmed.includes('accumulator')) {
+          improvements.push({
+            category: 'Code Quality',
+            suggestions: [`Consider using built-in sum() function instead of manual loop at line ${lineNum}`]
+          });
+        }
+      }
     });
+    
+    if (bugs.length === 0) {
+      bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding tests for edge cases.' });
+    }
     
     if (improvements.length === 0) {
       improvements.push({ category: 'Best Practices', suggestions: ['Add type hints for clarity', 'Consider using context managers for resource handling'] });
@@ -405,43 +489,59 @@ For each suggestion, explain:
       
       if (!trimmed || trimmed.startsWith('//')) return;
       
-      // Check for common C++ issues
+      // Critical: Memory leaks
       if (trimmed.includes('new ') && !code.includes('delete')) {
         bugs.push({
           line: lineNum,
-          severity: 'warning',
+          severity: 'error',
           message: 'Memory allocation without corresponding delete',
-          suggestion: 'Use smart pointers (std::unique_ptr, std::shared_ptr) to avoid manual memory management'
+          suggestion: 'Use smart pointers (std::unique_ptr, std::shared_ptr) to avoid manual memory management and potential memory leaks'
         });
       }
       
+      // Critical: Using namespace std
       if (trimmed.match(/using\s+namespace\s+std/)) {
         bugs.push({
           line: lineNum,
           severity: 'warning',
-          message: 'Avoid "using namespace std"',
-          suggestion: 'Use explicit namespace qualification (std::cout) or selective using declarations'
+          message: 'Avoid "using namespace std" - pollutes global namespace',
+          suggestion: 'Use explicit namespace qualification (std::cout) or selective using declarations for specific types'
         });
       }
       
-      if (trimmed.match(/char\s+\w+\[\d+\]/)) {
+      // Check for C-style arrays
+      if (trimmed.match(/char\s+\w+\[\d+\]/) || trimmed.match(/int\s+\w+\[\d+\]/)) {
         improvements.push({
           category: 'Modern C++',
-          suggestions: [`Use std::string or std::array instead of C-style char arrays at line ${lineNum}`]
+          suggestions: [`Use std::string or std::array instead of C-style arrays at line ${lineNum}`]
         });
       }
       
-      if (trimmed.includes('#include <stdio.h>') || trimmed.includes('#include <stdlib.h>')) {
+      // Check for C headers
+      if (trimmed.includes('#include <stdio.h>') || trimmed.includes('#include <stdlib.h>') || trimmed.includes('#include <string.h>')) {
         improvements.push({
           category: 'C++ Best Practices',
-          suggestions: [`Use C++ standard library (<iostream>, <cstdlib>) instead of C headers at line ${lineNum}`]
+          suggestions: [`Use C++ standard library (<iostream>, <cstdlib>, <cstring>) instead of C headers at line ${lineNum}`]
         });
       }
       
-      if (trimmed.match(/\w+\s+\*\w+/) && !trimmed.includes('const')) {
-        improvements.push({ category: 'Modern C++', suggestions: [`Consider using references instead of raw pointers at line ${lineNum}`] });
+      // Check for raw pointers
+      if (trimmed.match(/\w+\s+\*\w+/) && !trimmed.includes('const') && !trimmed.includes('std::')) {
+        improvements.push({ category: 'Modern C++', suggestions: [`Consider using smart pointers or references instead of raw pointers at line ${lineNum}`] });
+      }
+      
+      // Check for potential null pointer dereference
+      if (trimmed.includes('->') && !code.includes('if (') && !code.includes('if(')) {
+        improvements.push({
+          category: 'Safety',
+          suggestions: [`Check pointer is non-null before dereferencing at line ${lineNum}`]
+        });
       }
     });
+    
+    if (bugs.length === 0) {
+      bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding memory safety checks.' });
+    }
     
     if (improvements.length === 0) {
       improvements.push({ category: 'Best Practices', suggestions: ['Use const references for function parameters', 'Consider using standard library algorithms'] });
@@ -455,48 +555,85 @@ For each suggestion, explain:
       
       if (!trimmed || trimmed.startsWith('//')) return;
       
-      // Check for common Java issues
+      // Critical: main() in wrong class
       if (trimmed.match(/public\s+static\s+void\s+main/)) {
         if (!code.includes('public class')) {
           bugs.push({
             line: lineNum,
             severity: 'error',
-            message: 'main() method in non-public class',
-            suggestion: 'Declare the class as "public class ClassName" to run the program'
+            message: 'main() method in non-public class - program cannot run',
+            suggestion: 'Declare the class as "public class ClassName" to make the program executable'
           });
         }
       }
       
-      if (trimmed.includes('.equals(') && trimmed.includes('==')) {
-        improvements.push({
-          category: 'Best Practices',
-          suggestions: [`Use .equals() for String comparison instead of == at line ${lineNum}`]
+      // Critical: String comparison with ==
+      if (trimmed.includes('==') && trimmed.includes('"') && !trimmed.includes('.equals(')) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Use .equals() for String comparison instead of ==',
+          suggestion: 'String literals should be compared with .equals() or .equalsIgnoreCase(), not == operator'
         });
       }
       
+      // Critical: Broad exception catching
       if (trimmed.match(/catch\s*\(\s*Exception\s+\w+\s*\)/)) {
         bugs.push({
           line: lineNum,
           severity: 'warning',
-          message: 'Catching broad Exception type',
-          suggestion: 'Catch specific exception types (IOException, NullPointerException, etc.)'
+          message: 'Catching overly broad Exception type',
+          suggestion: 'Catch specific exception types (IOException, NullPointerException, ClassNotFoundException, etc.)'
         });
       }
       
-      if (trimmed.match(/new\s+\w+\(\)/) && !trimmed.includes('try')) {
+      // Check for try-with-resources
+      if (trimmed.match(/new\s+\w+\(\)/) && trimmed.includes('Stream') || trimmed.includes('Reader') || trimmed.includes('Writer')) {
+        if (!trimmed.includes('try') && !trimmed.includes('try-with-resources')) {
+          improvements.push({
+            category: 'Resource Management',
+            suggestions: [`Use try-with-resources for AutoCloseable objects (${trimmed.match(/new\s+(\w+)/)?.[1]}) at line ${lineNum}`]
+          });
+        }
+      }
+      
+      // Check for JavaDoc on public methods
+      if (trimmed.match(/public\s+\w+\s+\w+\(/) && !trimmed.includes('//')) {
+        const prevLine = lines[idx - 1]?.trim() || '';
+        if (!prevLine.startsWith('/**') && !prevLine.startsWith('*')) {
+          improvements.push({ category: 'Documentation', suggestions: [`Add JavaDoc comment to public method "${trimmed.substring(0, 40)}" at line ${lineNum}`] });
+        }
+      }
+      
+      // Check for NULL checks
+      if (trimmed.includes('.') && !trimmed.includes('null') && !trimmed.includes('!= null') && !trimmed.includes('== null')) {
+        // Potential null pointer dereference
+        if (!trimmed.match(/if.*null|if.*==|if.*!=|throw|return/)) {
+          const nextLine = lines[idx + 1]?.trim() || '';
+          if (!nextLine.includes('null')) {
+            improvements.push({
+              category: 'Null Safety',
+              suggestions: [`Consider null check before method call at line ${lineNum}`]
+            });
+          }
+        }
+      }
+      
+      // Check naming conventions
+      if (trimmed.match(/public\s+\w+\s+[a-z]+_[a-z]+/) || trimmed.match(/private\s+\w+\s+[A-Z]\w+_[a-z]+/)) {
         improvements.push({
-          category: 'Resource Management',
-          suggestions: [`Consider try-with-resources for AutoCloseable objects at line ${lineNum}`]
+          category: 'Code Style',
+          suggestions: [`Use camelCase naming convention instead of snake_case at line ${lineNum}`]
         });
-      }
-      
-      if (trimmed.match(/public\s+\w+\s+\w+\(/) && !code.substring(code.indexOf(trimmed)).match(/\/\*[\s\S]*?\*\/|\/\//)) {
-        improvements.push({ category: 'Documentation', suggestions: [`Add JavaDoc comment to public method at line ${lineNum}`] });
       }
     });
     
+    if (bugs.length === 0) {
+      bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding comprehensive error handling.' });
+    }
+    
     if (improvements.length === 0) {
-      improvements.push({ category: 'Code Style', suggestions: ['Follow camelCase naming conventions', 'Use meaningful variable names'] });
+      improvements.push({ category: 'Code Style', suggestions: ['Follow camelCase naming conventions', 'Use meaningful variable names', 'Add comprehensive JavaDoc documentation'] });
     }
   }
 
