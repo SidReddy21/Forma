@@ -1,11 +1,12 @@
 import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
+import { IndexeddbPersistence } from 'y-indexeddb';
 import * as monaco from 'monaco-editor';
 import { useCollaborationStore } from '../store/collaborationStore';
+import api from '../services/api';
 
 export interface YjsHandle {
   doc: Y.Doc;
-  provider: any;
+  persistence: IndexeddbPersistence | null;
   text: Y.Text;
   destroy: () => void;
 }
@@ -14,23 +15,16 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
   const doc = new Y.Doc();
   const roomId = `codemeld-${sessionId}`;
   
-  console.log(`[Yjs] Initializing with sessionId: ${sessionId}, roomId: ${roomId}`);
+  console.log(`[Yjs] Initializing CRDT with sessionId: ${sessionId}, roomId: ${roomId}`);
   
-  // Use public demo WebSocket server; replace with your own for production
-  const provider = new WebsocketProvider('wss://demos.yjs.dev', roomId, doc);
-
-  // Add error and connection logging
-  provider.on('sync', (isSynced: boolean) => {
-    console.log(`[Yjs] Sync status for room "${roomId}":`, isSynced);
-  });
-  provider.on('connection-error', (error: any) => {
-    console.error(`[Yjs] Connection error for room "${roomId}":`, error);
-  });
-  provider.on('connection-close', () => {
-    console.warn(`[Yjs] Connection closed for room "${roomId}"`);
-  });
-  provider.on('status', (event: any) => {
-    console.log(`[Yjs] Status for room "${roomId}":`, event.status);
+  // Use IndexedDB for local persistence (enables sync across tabs in same browser)
+  // Store key uses sessionId to isolate sessions
+  const persistence = new IndexeddbPersistence(roomId, doc);
+  
+  persistence.whenSynced.then(() => {
+    console.log(`[Yjs] IndexedDB persistence ready for room "${roomId}"`);
+  }).catch((err) => {
+    console.error(`[Yjs] IndexedDB persistence error for room "${roomId}":`, err);
   });
 
   const text = doc.getText('monaco');
@@ -44,11 +38,50 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     }
   }
 
-  const awareness = provider.awareness;
+  const awareness = new Y.Awareness(doc);
   awareness.setLocalStateField('user', {
     name: username,
     color: '#3b82f6',
   });
+  
+  // HTTP-based sync: every 30 seconds, sync local CRDT state to server
+  let lastSyncTime = Date.now();
+  const httpSyncInterval = setInterval(async () => {
+    try {
+      const now = Date.now();
+      console.log(`[Yjs] HTTP sync triggered for room "${roomId}" (last sync: ${(now - lastSyncTime) / 1000}s ago)`);
+      
+      // Get current content from CRDT
+      const currentContent = doc.getText('monaco').toString();
+      
+      // Send to server
+      await api.put(`/api/sessions/${sessionId}`, {
+        content: currentContent,
+        updatedAt: now,
+      });
+      
+      lastSyncTime = now;
+      console.log(`[Yjs] HTTP sync completed for room "${roomId}"`);
+    } catch (err) {
+      console.error(`[Yjs] HTTP sync error for room "${roomId}":`, err);
+    }
+  }, 30000); // Every 30 seconds
+  
+  // On page unload, do one final sync
+  const beforeUnloadHandler = async () => {
+    clearInterval(httpSyncInterval);
+    try {
+      const currentContent = doc.getText('monaco').toString();
+      await api.put(`/api/sessions/${sessionId}`, {
+        content: currentContent,
+        updatedAt: Date.now(),
+      });
+      console.log(`[Yjs] Final sync on unload for room "${roomId}"`);
+    } catch (err) {
+      console.error(`[Yjs] Final sync error on unload:`, err);
+    }
+  };
+  window.addEventListener('beforeunload', beforeUnloadHandler);
 
   // Custom binding between Monaco and Yjs
   let applyingRemote = false;
@@ -142,11 +175,13 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
   updateCollaborators();
 
   const destroy = () => {
+    clearInterval(httpSyncInterval);
+    window.removeEventListener('beforeunload', beforeUnloadHandler);
     awareness.off('update', updateCollaborators);
     disposable.dispose();
-    provider.destroy();
+    persistence?.destroy();
     doc.destroy();
   };
 
-  return { doc, provider, text, destroy };
+  return { doc, persistence, text, destroy };
 }
