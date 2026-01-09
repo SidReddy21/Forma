@@ -85,9 +85,6 @@ export function CollaborativePanel() {
                   {user.username}
                   {user.isCurrentUser && <span className="text-blue-400 ml-1">(You)</span>}
                 </p>
-                {!user.isCurrentUser && (
-                  <p className="text-xs text-slate-500">Line {user.cursor.line + 1}</p>
-                )}
               </div>
               {user.isActive && !user.isCurrentUser && (
                 <span className="text-xs text-green-400 font-semibold">● Active</span>
