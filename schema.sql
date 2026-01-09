@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS collaborators (
   color TEXT,
   joined_at INTEGER NOT NULL,
   left_at INTEGER,
-  FOREIGN KEY (session_id) REFERENCES sessions(id)
+  last_heartbeat TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  UNIQUE(session_id, user_id)
 );
 
 -- Code changes (edit history)
@@ -33,6 +35,17 @@ CREATE TABLE IF NOT EXISTS code_changes (
   position_line INTEGER,
   position_column INTEGER,
   content TEXT,
+  timestamp INTEGER NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+-- Real-time session updates (for polling-based sync)
+CREATE TABLE IF NOT EXISTS session_updates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'edit',
+  new_content TEXT,
   timestamp INTEGER NOT NULL,
   FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
@@ -62,6 +75,9 @@ CREATE TABLE IF NOT EXISTS artifacts (
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_collaborators_session ON collaborators(session_id);
+CREATE INDEX IF NOT EXISTS idx_collaborators_heartbeat ON collaborators(last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_changes_session ON code_changes(session_id);
+CREATE INDEX IF NOT EXISTS idx_updates_session ON session_updates(session_id);
+CREATE INDEX IF NOT EXISTS idx_updates_timestamp ON session_updates(timestamp);
 CREATE INDEX IF NOT EXISTS idx_analysis_session ON ai_analysis(session_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_session ON artifacts(session_id);
