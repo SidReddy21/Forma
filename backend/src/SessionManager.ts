@@ -220,10 +220,9 @@ export class SessionManager {
           collaborator.username = message.username || collaborator.username;
         }
         
-        // Update current content from message
-        if (message.content && typeof message.content === 'string') {
-          this.state.currentContent = message.content;
-        }
+        // NOTE: Do NOT update currentContent from raw content field
+        // Yjs updates handle conflict resolution and merging properly
+        // Only the Yjs state matters for content sync
         
         // Store Yjs update for other clients to pull
         const yStateUpdate = {
@@ -331,17 +330,22 @@ export class SessionManager {
 
     console.log(`[SessionManager] Sync: found ${yjsUpdates.length} Yjs updates, ${otherUpdates.length} other updates for userId: ${userId}`);
 
+    // Get all collaborators including the requesting user
+    const allCollaborators = Array.from(this.state.collaborators.values()).map((c) => ({
+      id: c.id,
+      username: c.username,
+      color: c.color,
+      cursor: c.cursor,
+      isActive: c.isActive,
+    }));
+    
+    console.log(`[SessionManager] Returning ${allCollaborators.length} total collaborators (all users in session)`);
+
     return new Response(
       JSON.stringify({
         content: this.state.currentContent,
         version: this.state.version || 0,
-        collaborators: Array.from(this.state.collaborators.values()).map((c) => ({
-          id: c.id,
-          username: c.username,
-          color: c.color,
-          cursor: c.cursor,
-          isActive: c.isActive,
-        })),
+        collaborators: allCollaborators,
         updates: yjsUpdates,
         otherUpdates,
         timestamp: Date.now(),

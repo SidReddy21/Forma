@@ -122,13 +122,15 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
           // Update collaborators from backend (this is the authoritative source)
           if (response.data.collaborators && Array.isArray(response.data.collaborators)) {
             console.log(`[Yjs] Backend returned ${response.data.collaborators.length} total collaborators, local userId: "${userId}"`);
+            // Backend now returns ALL users including current user
+            // Frontend filters out self to show only remote collaborators
             const remoteCollabs = response.data.collaborators
               .filter((c: any) => {
                 const isLocal = c.id === userId;
                 if (isLocal) {
                   console.log(`[Yjs] Filtering out local user: ${c.username} (${c.id})`);
                 }
-                return !isLocal; // Exclude local user
+                return !isLocal; // Exclude local user from collaborators list
               })
               .map((c: any) => ({
                 id: c.id,
