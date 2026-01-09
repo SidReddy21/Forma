@@ -1,24 +1,28 @@
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { useCollaborationStore } from '../store/collaborationStore';
+import { useEditorStore } from '../store/editorStore';
 import api from '../services/api';
 
 interface SyncState {
   lastSync: number;
   pollInterval: NodeJS.Timeout | null;
+  userId: string;
 }
 
 export function useRealtimeSync() {
   const { session, updateSessionContent } = useSessionStore();
+  const { editorRef } = useEditorStore();
   const syncStateRef = useRef<SyncState>({
     lastSync: Date.now(),
     pollInterval: null,
+    userId: `user-${Math.random().toString(36).substr(2, 9)}`,
   });
 
   useEffect(() => {
     if (!session) return;
 
-    const userId = `user-${Math.random().toString(36).substr(2, 9)}`;
+    const userId = syncStateRef.current.userId;
     const sessionId = session.id;
 
     // Poll for updates every 500ms
@@ -51,10 +55,19 @@ export function useRealtimeSync() {
         // Apply remote updates
         if (updates && Array.isArray(updates) && updates.length > 0) {
           updates.forEach((update: any) => {
-            if (update.type === 'edit') {
-              // Update content if it changed
-              if (update.newContent && content !== session.content) {
+            if (update.type === 'edit' && update.userId !== userId) {
+              // Update content if it changed and came from another user
+              if (update.newContent && update.newContent !== session.content) {
+                console.log('Applying remote edit from', update.userId);
                 updateSessionContent(update.newContent);
+                // Update Monaco Editor directly
+                if (editorRef) {
+                  const currentPosition = editorRef.getPosition();
+                  editorRef.setValue(update.newContent);
+                  if (currentPosition) {
+                    editorRef.setPosition(currentPosition);
+                  }
+                }
               }
               // Record the change in stats
               useCollaborationStore.getState().recordChange();
@@ -79,23 +92,24 @@ export function useRealtimeSync() {
         clearInterval(syncStateRef.current.pollInterval);
       }
     };
-  }, [session, updateSessionContent]);
+  }, [session, updateSessionContent, editorRef]);
 
   // Send local edits to backend
   const sendEdit = async (newContent: string) => {
     if (!session) return;
 
     try {
+      const userId = syncStateRef.current.userId;
       await api.post('/api/realtime', {
         sessionId: session.id,
-        userId: `user-${Math.random()}`,
+        userId,
         type: 'edit',
         newContent,
         timestamp: Date.now(),
       }, {
         params: {
           sessionId: session.id,
-          userId: `user-${Math.random()}`,
+          userId,
         },
       });
     } catch (error) {
