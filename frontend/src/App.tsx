@@ -37,17 +37,11 @@ export default function App() {
 
     setIsCreating(true);
     try {
-      const templates: Record<string, string> = {
-        cpp: '#include <iostream>\nint main() {\n  // Start coding here...\n  return 0;\n}',
-        python: '# Start coding here...\nprint("Hello, World!")',
-        java: 'public class Main {\n  public static void main(String[] args) {\n    // Start coding here...\n    System.out.println("Hello, World!");\n  }\n}',
-      };
-
       console.log(`[App] Creating new session with language: "${selectedLanguage}"`);
       await createSession({
         name: `Session-${Date.now()}`,
         language: selectedLanguage,
-        content: templates[selectedLanguage],
+        content: '', // start with a blank codespace
       });
       const newSession = useSessionStore.getState().session;
       if (newSession) {
