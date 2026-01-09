@@ -31,9 +31,12 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   const model: monaco.editor.ITextModel = editor.getModel();
 
   // Set initial content into CRDT if empty
+  // Only insert model content if we're creating a new session (empty doc)
+  // For existing sessions, let the server sync provide the authoritative content
   if (text.length === 0 && typeof model?.getValue === 'function') {
     const content = model.getValue();
     if (content.length > 0) {
+      console.log(`[Yjs] Initializing Yjs with ${content.length} chars from editor (new session)`);
       text.insert(0, content);
     }
   }
@@ -57,12 +60,76 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   let lastSyncedContent = text.toString();
   let lastSyncedUsername = username;
   let applyingRemote = false;
+  let initialSyncDone = false;
   
-  // Initial sync to register user immediately
-  (async () => {
+  // Fetch initial server state to get authoritative content and collaborators
+  const fetchInitialState = async () => {
+    try {
+      console.log(`[Yjs] Fetching initial server state for session "${sessionId}"`);
+      const response = await api.get(
+        `/api/realtime?sessionId=${sessionId}&userId=${userId}&lastSync=0`
+      );
+      
+      if (response.data) {
+        // Apply authoritative content from server to Yjs doc
+        if (response.data.content && typeof response.data.content === 'string') {
+          // Clear local doc and insert server content
+          if (text.length > 0) {
+            text.delete(0, text.length);
+          }
+          if (response.data.content.length > 0) {
+            text.insert(0, response.data.content);
+            console.log(`[Yjs] Applied initial server content: ${response.data.content.length} chars`);
+            lastSyncedContent = response.data.content;
+            
+            // Update editor view with server content
+            const editor_model = model;
+            if (editor_model) {
+              editor_model.setValue(response.data.content);
+            }
+          }
+        }
+        
+        // Update collaborators from initial server response
+        if (response.data.collaborators && Array.isArray(response.data.collaborators)) {
+          const remoteCollabs = response.data.collaborators
+            .filter((c: any) => c.id !== userId)
+            .map((c: any) => ({
+              id: c.id,
+              username: c.username || 'Unknown',
+              color: c.color || '#8b5cf6',
+              cursor: c.cursor || { line: 0, column: 0 },
+              isActive: c.isActive,
+              lastSeen: c.lastSeen || Date.now(),
+            }));
+          console.log(`[Yjs] Initial collaborators: ${remoteCollabs.length} remote users`, remoteCollabs.map(c => c.username));
+          useCollaborationStore.getState().setCollaborators(remoteCollabs);
+        }
+      }
+      
+      initialSyncDone = true;
+    } catch (err) {
+      console.error(`[Yjs] Initial state fetch error:`, err);
+      initialSyncDone = true; // Continue anyway
+    }
+  };
+  
+  // Fetch initial state immediately
+  fetchInitialState();
+  
+  // Then register user with initial sync after state is loaded
+  const registerUser = async () => {
+    // Wait for initial state to be fetched
+    let waitCount = 0;
+    while (!initialSyncDone && waitCount < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+    
     try {
       const yState = Y.encodeStateAsUpdate(doc);
       const currentUsername = useUserStore.getState().username;
+      console.log(`[Yjs] Registering user "${currentUsername}" with server`);
       await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
         type: 'sync',
         content: text.toString(),
@@ -72,11 +139,13 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
         username: currentUsername,
       });
       lastSyncedUsername = currentUsername;
-      console.log(`[Yjs] Initial sync completed for user "${currentUsername}"`);
+      console.log(`[Yjs] User registration completed`);
     } catch (err) {
-      console.error(`[Yjs] Initial sync error:`, err);
+      console.error(`[Yjs] User registration error:`, err);
     }
-  })();
+  };
+  
+  registerUser();
   
   const httpSyncInterval = setInterval(async () => {
     try {
