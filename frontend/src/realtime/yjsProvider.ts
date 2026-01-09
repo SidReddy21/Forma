@@ -38,20 +38,23 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     }
   }
 
-  // Initialize awareness after persistence is ready
+  // Initialize awareness for collaborative state
+  // y-indexeddb provides awareness immediately, though it may sync async
   let awareness: any = null;
-  persistence.whenSynced.then(() => {
+  try {
     awareness = persistence.awareness;
-    if (awareness) {
-      console.log(`[Yjs] Setting awareness for room "${roomId}" with username: "${username}"`);
-      awareness.setLocalStateField('user', {
-        name: username,
-        color: '#3b82f6',
-      });
+    if (!awareness) {
+      throw new Error('persistence.awareness is not available');
     }
-  }).catch((err) => {
-    console.error(`[Yjs] Error waiting for persistence sync:`, err);
-  });
+    console.log(`[Yjs] Awareness initialized for room "${roomId}"`);
+    awareness.setLocalStateField('user', {
+      name: username,
+      color: '#3b82f6',
+    });
+    console.log(`[Yjs] Set local user state: "${username}"`);
+  } catch (err) {
+    console.error(`[Yjs] Error initializing awareness:`, err);
+  }
   
   // HTTP-based sync: every 30 seconds, sync local CRDT state to server
   let lastSyncTime = Date.now();
@@ -166,6 +169,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
   const updateCollaborators = () => {
     if (!awareness) return; // Awareness not yet initialized
     const states = Array.from(awareness.getStates().values());
+    console.log(`[Yjs] Awareness states:`, states.length, states);
     const collabs = states
       .map((s: any, idx: number) => ({
         id: `peer-${idx}`,
@@ -176,20 +180,26 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
         lastSeen: Date.now(),
       }));
     // Replace current collaborators list for clarity
+    console.log(`[Yjs] Updating collaborators:`, collabs);
     try {
       useCollaborationStore.getState().setCollaborators(collabs);
-    } catch {}
+    } catch (err) {
+      console.error(`[Yjs] Error updating collaborators:`, err);
+    }
   };
 
-  // Listen for awareness updates once awareness is ready
-  persistence.whenSynced.then(() => {
-    if (awareness) {
+  // Listen for awareness updates
+  if (awareness) {
+    try {
       awareness.on('update', updateCollaborators);
-      updateCollaborators();
+      console.log(`[Yjs] Awareness listener attached for room "${roomId}"`);
+      updateCollaborators(); // Initial call to populate current state
+    } catch (err) {
+      console.error(`[Yjs] Error attaching awareness listener:`, err);
     }
-  }).catch((err) => {
-    console.error(`[Yjs] Error setting up awareness listener:`, err);
-  });
+  } else {
+    console.warn(`[Yjs] Awareness not available, skipping listener setup`);
+  }
 
   const destroy = () => {
     clearInterval(httpSyncInterval);
