@@ -248,50 +248,62 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
   const userId = url.searchParams.get('userId');
 
   if (!sessionId || !userId) {
-    return new Response('Missing sessionId or userId', { status: 400 });
+    return addCORSHeaders(new Response('Missing sessionId or userId', { status: 400 }));
   }
 
-  // Get Durable Object for this session
-  const stub = env.SESSIONS.get(env.SESSIONS.idFromName(sessionId));
+  try {
+    // Get Durable Object for this session
+    const stub = env.SESSIONS.get(env.SESSIONS.idFromName(sessionId));
 
-  if (request.method === 'GET') {
-    // Polling endpoint - returns current state and changes since last sync
-    const lastSyncTime = url.searchParams.get('lastSync') || '0';
-    const response = await stub.fetch(
-      new Request(`https://session/sync?lastSync=${lastSyncTime}&userId=${userId}`, {
-        method: 'GET',
-      })
-    );
-    return response;
+    if (request.method === 'GET') {
+      // Polling endpoint - returns current state and changes since last sync
+      const lastSyncTime = url.searchParams.get('lastSync') || '0';
+      const response = await stub.fetch(
+        new Request(`https://session/sync?lastSync=${lastSyncTime}&userId=${userId}`, {
+          method: 'GET',
+        })
+      );
+      return addCORSHeaders(response);
+    }
+
+    if (request.method === 'POST') {
+      // Send edit/cursor update to Durable Object
+      const message = await request.json();
+      const response = await stub.fetch(
+        new Request('https://session/broadcast', {
+          method: 'POST',
+          body: JSON.stringify(message),
+        })
+      );
+      return addCORSHeaders(response);
+    }
+
+    return addCORSHeaders(new Response('Method not allowed', { status: 405 }));
+  } catch (error) {
+    console.error('Realtime error:', error);
+    return addCORSHeaders(new Response('Realtime service error', { status: 500 }));
   }
-
-  if (request.method === 'POST') {
-    // Send edit/cursor update to Durable Object
-    const message = await request.json();
-    const response = await stub.fetch(
-      new Request('https://session/broadcast', {
-        method: 'POST',
-        body: JSON.stringify(message),
-      })
-    );
-    return response;
-  }
-
-  return new Response('Method not allowed', { status: 405 });
 }
 
 async function handleWorkflows(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+
   if (request.method === 'POST' && url.pathname === '/api/workflows/trigger') {
-    const { sessionId, type } = await request.json();
+    try {
+      const { sessionId, type } = await request.json();
 
-    ctx.waitUntil(triggerWorkflow(env, sessionId, type));
+      ctx.waitUntil(triggerWorkflow(env, sessionId, type));
 
-    return new Response(JSON.stringify({ triggered: true }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+      return addCORSHeaders(new Response(JSON.stringify({ triggered: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    } catch (error) {
+      console.error('Workflow trigger error:', error);
+      return addCORSHeaders(new Response('Failed to trigger workflow', { status: 500 }));
+    }
   }
 
-  return new Response('Bad request', { status: 400 });
+  return addCORSHeaders(new Response('Bad request', { status: 400 }));
 }
 
 /**

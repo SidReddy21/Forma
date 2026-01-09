@@ -42,6 +42,11 @@ export class SessionManager {
           return await this.handleLeave(request);
         } else if (path === '/broadcast') {
           return await this.handleBroadcast(request);
+        } else {
+          return new Response(JSON.stringify({ error: 'Not Found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
       }
 
@@ -52,13 +57,27 @@ export class SessionManager {
           return this.getChangeHistory(request);
         } else if (path === '/sync') {
           return this.handleSync(request);
+        } else {
+          return new Response(JSON.stringify({ error: 'Not Found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
       }
 
-      return new Response('Not Found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json' },
+      });
     } catch (error) {
       console.error('SessionManager error:', error);
-      return new Response(`Error: ${error}`, { status: 500 });
+      return new Response(
+        JSON.stringify({
+          error: 'Internal server error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
     }
   }
 

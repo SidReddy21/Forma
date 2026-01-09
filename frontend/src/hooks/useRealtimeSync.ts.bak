@@ -34,30 +34,19 @@ export function useRealtimeSync() {
 
         const { content, collaborators, updates, timestamp } = response.data;
 
-        // Update collaborators list using store method directly
-        if (collaborators && Array.isArray(collaborators) && collaborators.length > 0) {
-          collaborators.forEach((collab: any) => {
-            useCollaborationStore.getState().addCollaborator({
-              id: collab.id,
-              username: collab.username,
-              color: collab.color,
-              cursor: collab.cursor || { line: 0, column: 0 },
-              isActive: collab.isActive !== false,
-              lastSeen: Date.now(),
-            });
-          });
+        // Update collaborators list
+        if (collaborators && collaborators.length > 0) {
+          setCollaborators(collaborators);
         }
 
         // Apply remote updates
-        if (updates && Array.isArray(updates) && updates.length > 0) {
+        if (updates && updates.length > 0) {
           updates.forEach((update: any) => {
             if (update.type === 'edit') {
               // Update content if it changed
               if (update.newContent && content !== session.content) {
                 updateSessionContent(update.newContent);
               }
-              // Record the change in stats
-              useCollaborationStore.getState().recordChange();
             }
           });
         }
@@ -79,7 +68,7 @@ export function useRealtimeSync() {
         clearInterval(syncStateRef.current.pollInterval);
       }
     };
-  }, [session, updateSessionContent]);
+  }, [session, updateSessionContent, setCollaborators]);
 
   // Send local edits to backend
   const sendEdit = async (newContent: string) => {

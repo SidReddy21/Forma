@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAIStore } from '../store/aiStore';
 import { useSessionStore } from '../store/sessionStore';
-import { Sparkles, Send } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function AIAssistant() {

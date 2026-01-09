@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useCollaborationStore } from '../store/collaborationStore';
 import { Users, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';

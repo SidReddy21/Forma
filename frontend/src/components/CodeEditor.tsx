@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useSessionStore } from '../store/sessionStore';
 import { useEditorStore } from '../store/editorStore';

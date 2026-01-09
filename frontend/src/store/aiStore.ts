@@ -34,15 +34,37 @@ export const useAIStore = create<AIStore>((set) => ({
       console.log('Analyzing code:', { code, language });
       const response = await api.post('/api/ai/analyze', { code, language });
       console.log('Analysis response:', response.data);
-      set({ analysis: response.data });
+      
+      // Ensure response has proper structure
+      const analysis = {
+        sessionId: 'current-session',
+        timestamp: Date.now(),
+        bugs: (response.data.bugs || []) as any[],
+        improvements: (response.data.improvements || []) as any[],
+        testCoverage: response.data.testCoverage ?? 0,
+        complexity: (response.data.complexity || 'medium') as 'low' | 'medium' | 'high',
+      };
+      
+      set({ analysis });
     } catch (error) {
       console.error('Failed to analyze code:', error);
-      set({ analysis: {
-        bugs: [{ line: 1, message: 'Error: Could not analyze code', severity: 'error' }],
-        improvements: [],
-        testCoverage: 0,
-        complexity: 'unknown'
-      }});
+      set({
+        analysis: {
+          sessionId: 'current-session',
+          timestamp: Date.now(),
+          bugs: [
+            {
+              line: 1,
+              severity: 'warning' as const,
+              message: 'Error: Could not analyze code',
+              suggestion: 'Check your connection and try again',
+            },
+          ],
+          improvements: [],
+          testCoverage: 0,
+          complexity: 'medium' as const,
+        },
+      });
     } finally {
       set({ isLoading: false });
     }
