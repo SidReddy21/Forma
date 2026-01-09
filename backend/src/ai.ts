@@ -188,73 +188,128 @@ For each suggestion, explain:
    */
   private async queryLlama(request: LlamaRequest): Promise<LlamaResponse> {
     console.log('Querying Llama model:', request.model);
+    console.log('AI binding available:', !!this.env.AI);
 
     try {
       // Check if AI binding exists
       if (!this.env.AI) {
-        console.log('AI not available - using mock response for development');
-        return this.getMockResponse(request.prompt);
+        console.warn('AI binding not available - check wrangler.toml configuration');
+        return this.getIntelligentFallback(request.prompt);
       }
 
       // Call the actual Cloudflare Workers AI API
-      const response = await this.env.AI.run(request.model, {
+      console.log('Calling Workers AI with prompt length:', request.prompt.length);
+      const response = await this.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
         prompt: request.prompt,
         max_tokens: request.maxTokens,
         temperature: request.temperature,
         top_p: request.topP,
       });
 
-      console.log('AI response received (type):', typeof response);
-      console.log('AI response keys:', Object.keys(response || {}));
+      console.log('AI response received:', JSON.stringify(response).substring(0, 200));
 
       // Normalize Cloudflare response format
       // Cloudflare returns: { response: string } or { result: { response: string } }
-      if (response.response && typeof response.response === 'string') {
+      if (response && typeof response.response === 'string') {
+        console.log('Using direct response format');
         return {
           result: {
             response: response.response,
           },
         };
-      } else if (response.result && response.result.response) {
+      } else if (response && response.result && response.result.response) {
+        console.log('Using nested result format');
         return response as LlamaResponse;
       } else {
-        console.log('Unexpected AI response format:', response);
-        return this.getMockResponse(request.prompt);
+        console.error('Unexpected AI response format:', response);
+        return this.getIntelligentFallback(request.prompt);
       }
     } catch (error) {
       console.error('Llama API error:', error);
-      console.log('Falling back to mock response');
-      return this.getMockResponse(request.prompt);
+      console.error('Error details:', JSON.stringify(error));
+      return this.getIntelligentFallback(request.prompt);
     }
   }
 
-  private getMockResponse(prompt: string): LlamaResponse {
-    // Generate realistic mock responses based on prompt content
+  private getIntelligentFallback(prompt: string): LlamaResponse {
+    // Extract code from prompt for basic analysis
+    const codeMatch = prompt.match(/```[\w]*\n([\s\S]*?)```/);
+    const code = codeMatch ? codeMatch[1] : '';
+    
     if (prompt.includes('bug') || prompt.includes('analyze')) {
+      // Do basic code analysis
+      const lines = code.split('\n');
+      const bugs: any[] = [];
+      const improvements: any[] = [];
+      
+      // Basic syntax checks
+      lines.forEach((line, idx) => {
+        const lineNum = idx + 1;
+        const trimmed = line.trim();
+        
+        // Check for common issues
+        if (trimmed.match(/var\s+/)) {
+          bugs.push({
+            line: lineNum,
+            severity: 'warning',
+            message: 'Use const or let instead of var',
+            suggestion: 'Replace var with const or let for better scoping'
+          });
+        }
+        
+        if (trimmed.includes('==') && !trimmed.includes('===')) {
+          bugs.push({
+            line: lineNum,
+            severity: 'warning',
+            message: 'Use strict equality (===) instead of loose equality (==)',
+            suggestion: 'Replace == with === for type-safe comparison'
+          });
+        }
+        
+        if (trimmed.match(/console\.(log|error|warn)/)) {
+          improvements.push({
+            category: 'Code Quality',
+            suggestions: [`Remove console statements on line ${lineNum} before production`]
+          });
+        }
+      });
+      
+      // Calculate basic metrics
+      const codeLength = code.trim().length;
+      const hasComments = code.includes('//');
+      const complexity = codeLength < 100 ? 'low' : codeLength < 500 ? 'medium' : 'high';
+      
+      if (!hasComments && codeLength > 50) {
+        improvements.push({
+          category: 'Documentation',
+          suggestions: ['Add comments to explain complex logic']
+        });
+      }
+      
+      // If no issues found
+      if (bugs.length === 0 && codeLength > 10) {
+        bugs.push({
+          line: 1,
+          severity: 'info',
+          message: 'AI analysis unavailable - basic checks passed',
+          suggestion: 'Deploy with proper AI binding for comprehensive analysis'
+        });
+      } else if (codeLength <= 10) {
+        bugs.push({
+          line: 1,
+          severity: 'info',
+          message: 'Code is too short to analyze meaningfully',
+          suggestion: 'Write more code to get useful analysis'
+        });
+      }
+      
       return {
         result: {
           response: JSON.stringify({
-            bugs: [
-              { 
-                line: 5, 
-                severity: 'warning',
-                message: 'Potential null reference exception', 
-                suggestion: 'Add null check before accessing properties' 
-              },
-              { 
-                line: 12, 
-                severity: 'warning',
-                message: 'Missing error handling', 
-                suggestion: 'Wrap in try-catch block' 
-              },
-            ],
-            improvements: [
-              { category: 'Validation', suggestions: ['Add input validation'] },
-              { category: 'Performance', suggestions: ['Consider using async/await instead of promises'] },
-              { category: 'Error Handling', suggestions: ['Add comprehensive error handling'] },
-            ],
-            testCoverage: 0.65,
-            complexity: 'medium',
+            bugs,
+            improvements,
+            testCoverage: 0,
+            complexity,
           }),
         },
       };
@@ -263,31 +318,15 @@ For each suggestion, explain:
     if (prompt.includes('complete') || prompt.includes('suggestion')) {
       return {
         result: {
-          response: 'const result = await fetchData();\n// Handle the result',
+          response: '// Enable Workers AI binding for intelligent completions',
         },
       };
     }
 
-    if (prompt.includes('test')) {
-      return {
-        result: {
-          response: `describe('myFunction', () => {
-  it('should handle valid input', () => {
-    expect(myFunction(5)).toBe(10);
-  });
-
-  it('should throw on invalid input', () => {
-    expect(() => myFunction(null)).toThrow();
-  });
-});`,
-        },
-      };
-    }
-
-    // Default mock response
+    // Default fallback
     return {
       result: {
-        response: '// AI is running in mock/development mode. Deploy to Cloudflare to use real Llama 3.3 AI.',
+        response: '// Workers AI binding not configured. Add AI binding in wrangler.toml',
       },
     };
   }
