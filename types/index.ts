@@ -50,14 +50,14 @@ export interface CodeAnalysisReport {
   timestamp: number;
   bugs: {
     line: number;
-    severity: 'critical' | 'warning' | 'info';
+    severity: 'critical' | 'warning' | 'info' | 'error';
     message: string;
-    suggestion: string;
+    suggestion?: string;
   }[];
-  improvements: {
+  improvements: (string | {
     category: string;
     suggestions: string[];
-  }[];
+  })[];
   testCoverage: number;
   complexity: 'low' | 'medium' | 'high';
 }

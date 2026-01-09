@@ -235,13 +235,23 @@ For each suggestion, explain:
         result: {
           response: JSON.stringify({
             bugs: [
-              { line: 5, message: 'Potential null reference exception', severity: 'warning' },
-              { line: 12, message: 'Missing error handling', severity: 'warning' },
+              { 
+                line: 5, 
+                severity: 'warning',
+                message: 'Potential null reference exception', 
+                suggestion: 'Add null check before accessing properties' 
+              },
+              { 
+                line: 12, 
+                severity: 'warning',
+                message: 'Missing error handling', 
+                suggestion: 'Wrap in try-catch block' 
+              },
             ],
             improvements: [
-              'Add input validation',
-              'Consider using async/await instead of promises',
-              'Add comprehensive error handling',
+              { category: 'Validation', suggestions: ['Add input validation'] },
+              { category: 'Performance', suggestions: ['Consider using async/await instead of promises'] },
+              { category: 'Error Handling', suggestions: ['Add comprehensive error handling'] },
             ],
             testCoverage: 0.65,
             complexity: 'medium',
@@ -358,12 +368,17 @@ Return JSON in this format:
       // Normalize the response structure
       const bugs = (parsed.bugs || []).map((bug: any) => ({
         line: bug.line || 1,
-        message: bug.message || bug.suggestion || 'Unknown issue',
         severity: bug.severity || 'warning',
+        message: bug.message || bug.suggestion || 'Unknown issue',
+        suggestion: bug.suggestion || 'No suggestion available',
       }));
 
       const improvements = Array.isArray(parsed.improvements) 
-        ? parsed.improvements.flat()
+        ? parsed.improvements.map((imp: any) => 
+            typeof imp === 'string' 
+              ? { category: 'General', suggestions: [imp] }
+              : imp
+          )
         : [];
 
       return {
@@ -380,7 +395,12 @@ Return JSON in this format:
       return {
         sessionId: 'current-session',
         timestamp: Date.now(),
-        bugs: [{ line: 1, message: 'Could not parse analysis response', severity: 'error' }],
+        bugs: [{ 
+          line: 1, 
+          severity: 'warning',
+          message: 'Could not parse analysis response', 
+          suggestion: 'Check your code syntax and try again',
+        }],
         improvements: [],
         testCoverage: 0,
         complexity: 'medium',

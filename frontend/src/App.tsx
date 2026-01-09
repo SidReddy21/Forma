@@ -7,33 +7,54 @@ import { motion } from 'framer-motion';
 import { Copy, Check } from 'lucide-react';
 
 export default function App() {
-  const { session, createSession, joinSession } = useSessionStore();
+  const { session, createSession, joinSession, loading, error } = useSessionStore();
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Handle URL params to join existing session on load
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('sessionId');
-    if (sessionId && !session) {
-      joinSession(sessionId);
+    if (sessionId && !session && !loading) {
+      console.log('Auto-joining session from URL:', sessionId);
+      joinSession(sessionId).catch(err => {
+        console.error('Failed to join session from URL:', err);
+      });
     }
-  }, []);
+  }, [session, loading]);
 
   const handleNewSession = useCallback(async () => {
-    await createSession({
-      name: `Session-${Date.now()}`,
-      language: 'typescript',
-      content: '',
-    });
+    setIsCreating(true);
+    try {
+      await createSession({
+        name: `Session-${Date.now()}`,
+        language: 'typescript',
+        content: '// Start coding here...\n',
+      });
+      console.log('New session created successfully');
+    } catch (err) {
+      console.error('Failed to create new session:', err);
+      alert('Failed to create new session. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
   }, [createSession]);
 
   const handleCopyShareLink = useCallback(() => {
-    if (session) {
+    if (!session || !session.id) {
+      alert('No active session to share');
+      return;
+    }
+    try {
       const shareUrl = `${window.location.origin}?sessionId=${session.id}`;
       navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      console.log('Share link copied:', shareUrl);
+    } catch (err) {
+      console.error('Failed to copy share link:', err);
+      alert('Failed to copy share link');
     }
   }, [session]);
 
@@ -43,7 +64,7 @@ export default function App() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center space-y-8"
+          className="text-center space-y-8 max-w-lg px-4"
         >
           <div>
             <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">
@@ -54,14 +75,32 @@ export default function App() {
             </p>
           </div>
 
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleNewSession}
-            className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-purple-500/50 transition-all"
-          >
-            Start Collaborating
-          </motion.button>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="bg-red-900/50 border border-red-500 p-4 rounded-lg text-red-200"
+            >
+              {error}
+            </motion.div>
+          )}
+
+          {loading || isCreating ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-slate-400">{loading ? 'Loading session...' : 'Creating new session...'}</p>
+            </div>
+          ) : (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleNewSession}
+              disabled={isCreating}
+              className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-purple-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Start Collaborating
+            </motion.button>
+          )}
         </motion.div>
       </div>
     );

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAIStore } from '../store/aiStore';
 import { useSessionStore } from '../store/sessionStore';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function AIAssistant() {
@@ -9,6 +9,7 @@ export function AIAssistant() {
     completions,
     analysis,
     isLoading,
+    error,
     requestCompletion,
     analyzeCode,
   } = useAIStore();
@@ -16,9 +17,16 @@ export function AIAssistant() {
   const [userQuery, setUserQuery] = useState('');
 
   const handleAnalyze = async () => {
-    if (!session) return;
-    // Get current code from session
-    await analyzeCode(session.content || 'No code', session.language);
+    if (!session) {
+      console.error('No active session');
+      return;
+    }
+    if (!session.content || session.content.trim() === '') {
+      console.warn('No code to analyze');
+      return;
+    }
+    // Pass sessionId along with code and language
+    await analyzeCode(session.content, session.language, session.id);
   };
 
   return (
@@ -29,23 +37,51 @@ export function AIAssistant() {
         <h3 className="font-semibold">AI Assistant</h3>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="bg-red-900/50 border border-red-500 p-3 rounded text-sm flex items-start gap-2"
+        >
+          <AlertCircle size={16} className="text-red-400 mt-0.5 flex-shrink-0" />
+          <p className="text-red-200">{error}</p>
+        </motion.div>
+      )}
+
       {/* Analysis Results */}
       {analysis && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="bg-slate-700 p-3 rounded text-sm space-y-2 max-h-48 overflow-y-auto"
+          className="bg-slate-700 p-3 rounded text-sm space-y-3 max-h-64 overflow-y-auto"
         >
           <div>
-            <p className="text-yellow-400 font-semibold">Bugs Found: {analysis.bugs.length}</p>
-            {analysis.bugs.map((bug, idx) => (
-              <p key={idx} className="text-xs text-slate-300 mt-1">
-                Line {bug.line}: {bug.message}
-              </p>
+            <p className="text-yellow-400 font-semibold mb-2">Bugs Found: {analysis.bugs?.length || 0}</p>
+            {(analysis.bugs || []).map((bug, idx) => (
+              <div key={idx} className="text-xs bg-slate-800 p-2 rounded mb-2">
+                <p className="text-slate-300">
+                  <span className="text-yellow-400 font-mono">Line {bug.line}:</span> {bug.message}
+                </p>
+                {bug.suggestion && (
+                  <p className="text-slate-400 mt-1 italic">💡 {bug.suggestion}</p>
+                )}
+              </div>
             ))}
           </div>
+          {(analysis.improvements || []).length > 0 && (
+            <div>
+              <p className="text-green-400 font-semibold mb-2">Improvements:</p>
+              {analysis.improvements.map((imp, idx) => (
+                <p key={idx} className="text-xs text-slate-300 mb-1">• {typeof imp === 'string' ? imp : imp.category}</p>
+              ))}
+            </div>
+          )}
           <div className="text-blue-400 font-semibold">
-            Test Coverage: {(analysis.testCoverage * 100).toFixed(0)}%
+            Test Coverage: {((analysis.testCoverage || 0) * 100).toFixed(0)}%
+          </div>
+          <div className="text-purple-400 text-xs">
+            Complexity: <span className="uppercase font-semibold">{analysis.complexity || 'unknown'}</span>
           </div>
         </motion.div>
       )}
