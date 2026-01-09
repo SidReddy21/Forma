@@ -3,11 +3,14 @@ import { CodeEditor } from './components/CodeEditor';
 import { CollaborativePanel } from './components/CollaborativePanel';
 import { AIAssistant } from './components/AIAssistant';
 import { useSessionStore } from './store/sessionStore';
+import { useUserStore } from './store/userStore';
 import { motion } from 'framer-motion';
 import { Copy, Check } from 'lucide-react';
 
 export default function App() {
   const { session, createSession, joinSession, loading, error } = useSessionStore();
+  const { username, setUsername } = useUserStore();
+  const [usernameInput, setUsernameInput] = useState(username);
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -120,6 +123,27 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-400">Your Name:</label>
+            <input
+              type="text"
+              value={usernameInput}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              onBlur={() => {
+                if (usernameInput.trim()) {
+                  setUsername(usernameInput.trim());
+                }
+              }}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && usernameInput.trim()) {
+                  setUsername(usernameInput.trim());
+                }
+              }}
+              maxLength={20}
+              className="px-3 py-2 bg-slate-700 border border-slate-600 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 w-32"
+              placeholder="Your name"
+            />
+          </div>
           <button
             onClick={handleCopyShareLink}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded transition-colors"

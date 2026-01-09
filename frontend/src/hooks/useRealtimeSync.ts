@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { useCollaborationStore } from '../store/collaborationStore';
 import { useEditorStore } from '../store/editorStore';
+import { useUserStore } from '../store/userStore';
 import api from '../services/api';
 
 interface SyncState {
@@ -9,16 +10,19 @@ interface SyncState {
   pollInterval: NodeJS.Timeout | null;
   heartbeatInterval: NodeJS.Timeout | null;
   userId: string;
+  lastRemoteContent: string;
 }
 
 export function useRealtimeSync() {
   const { session, updateSessionContent } = useSessionStore();
   const { editorRef } = useEditorStore();
+  const { username } = useUserStore();
   const syncStateRef = useRef<SyncState>({
     lastSync: 0,
     pollInterval: null,
     heartbeatInterval: null,
     userId: `user-${Math.random().toString(36).substr(2, 9)}`,
+    lastRemoteContent: '',
   });
 
   useEffect(() => {
@@ -34,7 +38,7 @@ export function useRealtimeSync() {
           sessionId,
           userId,
           type: 'join',
-          username: `User ${userId.substring(5, 14)}`,
+          username: username,
         }, { params: { sessionId, userId } });
       } catch (error) {
         console.error('Heartbeat failed:', error);
@@ -71,20 +75,24 @@ export function useRealtimeSync() {
           });
         }
 
-        // Apply remote updates
+        // Apply remote updates - ONLY if content actually changed from remote
         if (updates && Array.isArray(updates) && updates.length > 0) {
           let latestTs = syncStateRef.current.lastSync;
           updates.forEach((update: any) => {
             if (update.type === 'edit' && update.userId !== userId && update.newContent) {
-              updateSessionContent(update.newContent);
-              if (editorRef) {
-                const currentPosition = editorRef.getPosition();
-                editorRef.setValue(update.newContent);
-                if (currentPosition) {
-                  editorRef.setPosition(currentPosition);
+              // Only apply if the new content is different from what we last saw
+              if (update.newContent !== syncStateRef.current.lastRemoteContent) {
+                syncStateRef.current.lastRemoteContent = update.newContent;
+                updateSessionContent(update.newContent);
+                if (editorRef) {
+                  const currentPosition = editorRef.getPosition();
+                  editorRef.setValue(update.newContent);
+                  if (currentPosition) {
+                    editorRef.setPosition(currentPosition);
+                  }
                 }
+                useCollaborationStore.getState().recordChange();
               }
-              useCollaborationStore.getState().recordChange();
             }
             if (typeof update.timestamp === 'number') {
               latestTs = Math.max(latestTs, update.timestamp);
