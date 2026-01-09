@@ -86,9 +86,7 @@ export function CollaborativePanel() {
                   {user.isCurrentUser && <span className="text-blue-400 ml-1">(You)</span>}
                 </p>
               </div>
-              {user.isActive && !user.isCurrentUser && (
-                <span className="text-xs text-green-400 font-semibold">● Active</span>
-              )}
+              {/* Active badge removed for simpler presence UI */}
             </motion.div>
           ))}
         </div>

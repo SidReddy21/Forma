@@ -210,8 +210,10 @@ async function handleAI(request: Request, env: Env, ctx: ExecutionContext): Prom
     const { context, language, position } = await request.json();
 
     try {
-      const completion = await generateCompletion(env, context, language, position);
-      return addCORSHeaders(new Response(JSON.stringify(completion), {
+      // Use CodeAIService for real completions when AI binding is available
+      const aiService = new CodeAIService(env);
+      const result = await aiService.generateCompletion(context, language);
+      return addCORSHeaders(new Response(JSON.stringify(result), {
         headers: { 'Content-Type': 'application/json' },
       }));
     } catch (error) {
@@ -355,37 +357,7 @@ async function handleWorkflows(request: Request, env: Env, ctx: ExecutionContext
   return addCORSHeaders(new Response('Bad request', { status: 400 }));
 }
 
-/**
- * Generate AI completions using Llama 3.3
- */
-async function generateCompletion(
-  env: Env,
-  context: string,
-  language: string,
-  position: { line: number; column: number }
-): Promise<AICompletion> {
-  // This would integrate with Cloudflare Workers AI
-  // For now, mock response
-  const mockSuggestions = [
-    {
-      text: 'function myFunction() {',
-      confidence: 0.95,
-      reasoning: 'Based on code context and common patterns',
-    },
-    {
-      text: 'async function myFunction() {',
-      confidence: 0.87,
-      reasoning: 'Common async pattern detected',
-    },
-  ];
-
-  return {
-    id: crypto.randomUUID(),
-    context,
-    suggestions: mockSuggestions,
-    timestamp: Date.now(),
-  };
-}
+// Legacy mock completion function removed; using CodeAIService
 
 /**
  * Trigger code analysis workflow
