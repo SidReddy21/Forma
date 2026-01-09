@@ -25,6 +25,31 @@ export function useRealtimeSync() {
     const userId = syncStateRef.current.userId;
     const sessionId = session.id;
 
+    // Join the session as a collaborator
+    const joinSession = async () => {
+      try {
+        console.log('Joining session:', sessionId, 'userId:', userId);
+        await api.post('/api/realtime', {
+          sessionId,
+          userId,
+          type: 'join',
+          username: `User ${userId.substring(5, 14)}`,
+          color: '#' + Math.floor(Math.random()*16777215).toString(16),
+        }, {
+          params: {
+            sessionId,
+            userId,
+          },
+        });
+        console.log('Joined session successfully');
+      } catch (error) {
+        console.error('Failed to join session:', error);
+      }
+    };
+
+    // Join immediately
+    joinSession();
+
     // Poll for updates every 500ms
     const poll = async () => {
       try {

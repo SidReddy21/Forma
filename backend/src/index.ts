@@ -294,8 +294,19 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
     if (request.method === 'POST') {
       // Send edit/cursor update to Durable Object
       const message = await request.json();
+      
+      // Route based on message type
+      let path = '/broadcast';
+      if (message.type === 'join') {
+        path = '/join';
+      } else if (message.type === 'leave') {
+        path = '/leave';
+      } else if (message.type === 'cursor') {
+        path = '/cursor';
+      }
+      
       const response = await stub.fetch(
-        new Request('https://session/broadcast', {
+        new Request(`https://session${path}`, {
           method: 'POST',
           body: JSON.stringify(message),
         })
