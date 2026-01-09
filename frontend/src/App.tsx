@@ -20,10 +20,11 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('sessionId');
+    console.log(`[App] Auto-join check: sessionId from URL: "${sessionId}", current session: "${session?.id || 'none'}"`);
     if (sessionId && !session && !loading) {
-      console.log('Auto-joining session from URL:', sessionId);
+      console.log(`[App] Auto-joining session from URL: "${sessionId}"`);
       joinSession(sessionId).catch(err => {
-        console.error('Failed to join session from URL:', err);
+        console.error(`[App] Failed to join session "${sessionId}" from URL:`, err);
       });
     }
   }, [session, loading, joinSession]);
@@ -37,6 +38,7 @@ export default function App() {
         javascript: '// Start coding here...\nconsole.log("Hello, World!");',
       };
 
+      console.log(`[App] Creating new session with language: "${selectedLanguage}"`);
       await createSession({
         name: `Session-${Date.now()}`,
         language: selectedLanguage,
@@ -44,7 +46,9 @@ export default function App() {
       });
       const newSession = useSessionStore.getState().session;
       if (newSession) {
+        console.log(`[App] Session created with ID: "${newSession.id}"`);
         const newUrl = `${window.location.origin}${window.location.pathname}?sessionId=${newSession.id}`;
+        console.log(`[App] Updated URL to: "${newUrl}"`);
         window.history.replaceState({}, '', newUrl);
       }
     } catch (err) {
@@ -63,9 +67,9 @@ export default function App() {
     try {
       const shareUrl = `${window.location.origin}?sessionId=${session.id}`;
       navigator.clipboard.writeText(shareUrl);
+      console.log(`[App] Share URL copied to clipboard: "${shareUrl}"`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      console.log('Share link copied:', shareUrl);
     } catch (err) {
       console.error('Failed to copy share link:', err);
       alert('Failed to copy share link');

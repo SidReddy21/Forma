@@ -25,6 +25,7 @@ export function CodeEditor() {
     useEditorStore.setState({ editorRef: editor });
     if (session) {
       // Initialize Yjs Monaco binding for robust realtime sync
+      console.log(`[CodeEditor] Mounting Yjs with session.id: "${session.id}", username: "${username}"`);
       yjsHandleRef.current = initYjsMonaco(editor, session.id, username);
     }
   };
