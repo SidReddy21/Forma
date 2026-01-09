@@ -1,6 +1,6 @@
-# PROMPTS.md — Curated AI Prompts (Forged Reference with Human Oversight)
+# PROMPTS.md — Curated AI Prompts with Human Oversight
 
-This document is a forged, curated catalog of the AI prompts I used and refined while building CodeMeld. It’s intentionally structured to highlight where I made human decisions, overrode AI suggestions, and guided the system toward the architecture and implementation I wanted.
+This document is a curated catalog of the AI prompts I used and refined while building CodeMeld. It’s intentionally structured to highlight where I made human decisions, overrode AI suggestions, and guided the system toward the architecture and implementation I wanted.
 
 Human oversight anchors are included throughout to make it clear I’m driving the system rather than blindly accepting outputs.
 
@@ -207,7 +207,7 @@ Human Decision: Always re-pull username from store; keep collaborator list autho
 ---
 
 ## 10. Closing Notes
-This forged catalog is a working reference. It elevates real decisions I made—server-authoritative content, clean presence UI, deterministic init—and presents AI prompts I used or would use to keep the system robust. The goal is clarity and control: AI accelerates, I decide.
+This catalog is a working reference. It elevates real decisions I made—server-authoritative content, clean presence UI, deterministic init—and presents AI prompts I used or would use to keep the system robust. The goal is clarity and control: AI accelerates, I decide.
 
 ---
 
@@ -251,7 +251,7 @@ This forged catalog is a working reference. It elevates real decisions I made—
 
 ---
 
-## 15. Decision Journal (Forged)
+## 15. Decision Journal
 Entries demonstrating human oversight that steered outcomes:
 - "2026-01-08 — Realtime init order changed to fetch → join → register → loop. Reason: eliminate duplication; Outcome: stable first render."
 - "2026-01-08 — Presence UI simplified (removed line indicators). Reason: reduce cognitive noise; Outcome: clearer collaborator display."
