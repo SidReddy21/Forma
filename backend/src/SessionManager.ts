@@ -201,11 +201,23 @@ export class SessionManager {
       try {
         console.log(`[SessionManager] Received Yjs sync from ${message.username} (userId: ${message.userId})`);
         
-        // Update collaborator info
-        const collaborator = this.state.collaborators.get(message.userId);
-        if (collaborator) {
+        // Update or create collaborator info
+        let collaborator = this.state.collaborators.get(message.userId);
+        if (!collaborator) {
+          collaborator = {
+            id: message.userId,
+            username: message.username || 'Unknown',
+            color: '#3b82f6',
+            cursor: { line: 0, column: 0 },
+            isActive: true,
+            lastSeen: Date.now(),
+          };
+          this.state.collaborators.set(message.userId, collaborator);
+          console.log(`[SessionManager] New collaborator joined: ${message.username}`);
+        } else {
           collaborator.lastSeen = Date.now();
           collaborator.isActive = true;
+          collaborator.username = message.username || collaborator.username;
         }
         
         // Update current content from message
@@ -218,6 +230,7 @@ export class SessionManager {
           yState: message.yState,
           userId: message.userId,
           username: message.username,
+          awarenessState: message.awarenessState,
           timestamp: message.timestamp || Date.now(),
         };
         

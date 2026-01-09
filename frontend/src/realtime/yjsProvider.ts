@@ -61,16 +61,22 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
       const now = Date.now();
       const currentContent = doc.getText('monaco').toString();
       
-      // Only sync if content has changed
-      if (currentContent !== lastSyncedContent) {
-        console.log(`[Yjs] HTTP sync triggered - content changed, size: ${currentContent.length}`);
+      // Always sync awareness state for presence
+      const awarenessUpdate = awareness ? Array.from(awareness.getLocalState() ? [awareness.getLocalState()] : []) : [];
+      
+      // Only sync if content has changed OR periodically for awareness
+      const shouldSync = currentContent !== lastSyncedContent || now - lastSyncTime > 10000;
+      
+      if (shouldSync) {
+        console.log(`[Yjs] HTTP sync triggered - content: ${currentContent !== lastSyncedContent}, periodic: ${now - lastSyncTime > 10000}`);
         
-        // Send to server with full CRDT state
+        // Send to server with full CRDT state and awareness
         const yState = Y.encodeStateAsUpdate(doc);
         await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
           type: 'sync',
           content: currentContent,
           yState: Array.from(yState),
+          awarenessState: awarenessUpdate,
           timestamp: now,
           username,
         });
@@ -92,11 +98,20 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
             try {
               const yUpdate = new Uint8Array(update.yState);
               Y.applyUpdate(doc, yUpdate, 'remote');
-              console.log(`[Yjs] Applied remote update`);
+              console.log(`[Yjs] Applied remote update from ${update.username}`);
+              
+              // Update awareness if available
+              if (update.awarenessState && awareness && update.userId !== userId) {
+                console.log(`[Yjs] Updating remote awareness for ${update.username}`);
+                // Trigger awareness update
+                awareness.setLocalState(awareness.getLocalState());
+              }
             } catch (err) {
               console.error(`[Yjs] Error applying remote update:`, err);
             }
           });
+          // Trigger collaborator update after applying all updates
+          updateCollaborators();
         }
       } catch (err) {
         console.error(`[Yjs] Error fetching remote updates:`, err);
@@ -198,18 +213,23 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   // Update collaborator store on awareness updates
   const updateCollaborators = () => {
     if (!awareness) return;
-    const states = Array.from(awareness.getStates().values());
-    console.log(`[Yjs] Awareness states:`, states.length, states);
+    const localClientID = awareness.clientID;
+    const states = Array.from(awareness.getStates().entries());
+    console.log(`[Yjs] Awareness - local clientID: ${localClientID}, total states: ${states.length}`);
+    
+    // Filter out local user and map to collaborator format
     const collabs = states
-      .map((s: any, idx: number) => ({
-        id: `peer-${idx}`,
-        username: s?.user?.name || 'Unknown',
-        color: s?.user?.color || '#8b5cf6',
-        cursor: s?.cursor || { line: 0, column: 0 },
+      .filter(([clientId, _]) => clientId !== localClientID) // Exclude local user
+      .map(([clientId, state]: [number, any]) => ({
+        id: `peer-${clientId}`,
+        username: state?.user?.name || 'Unknown',
+        color: state?.user?.color || '#8b5cf6',
+        cursor: state?.cursor || { line: 0, column: 0 },
         isActive: true,
         lastSeen: Date.now(),
       }));
-    console.log(`[Yjs] Updating collaborators:`, collabs);
+    
+    console.log(`[Yjs] Updating collaborators (filtered ${states.length - collabs.length} local):`, collabs);
     try {
       useCollaborationStore.getState().setCollaborators(collabs);
     } catch (err) {
