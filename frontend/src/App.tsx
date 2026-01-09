@@ -14,6 +14,7 @@ export default function App() {
   const [showAI, setShowAI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState<'cpp' | 'python' | 'javascript'>('javascript');
 
   // Handle URL params to join existing session on load
   useEffect(() => {
@@ -30,10 +31,16 @@ export default function App() {
   const handleNewSession = useCallback(async () => {
     setIsCreating(true);
     try {
+      const templates: Record<string, string> = {
+        cpp: '#include <iostream>\nint main() {\n  // Start coding here...\n  return 0;\n}',
+        python: '# Start coding here...\nprint("Hello, World!")',
+        javascript: '// Start coding here...\nconsole.log("Hello, World!");',
+      };
+
       await createSession({
         name: `Session-${Date.now()}`,
-        language: 'typescript',
-        content: '// Start coding here...\n',
+        language: selectedLanguage,
+        content: templates[selectedLanguage],
       });
       const newSession = useSessionStore.getState().session;
       if (newSession) {
@@ -46,7 +53,7 @@ export default function App() {
     } finally {
       setIsCreating(false);
     }
-  }, [createSession]);
+  }, [createSession, selectedLanguage]);
 
   const handleCopyShareLink = useCallback(() => {
     if (!session || !session.id) {
@@ -99,6 +106,21 @@ export default function App() {
             </div>
           ) : (
             <div className="space-y-3">
+              <div className="flex gap-2">
+                {(['cpp', 'python', 'javascript'] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    onClick={() => setSelectedLanguage(lang)}
+                    className={`flex-1 px-3 py-2 rounded transition-colors ${
+                      selectedLanguage === lang
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {lang === 'cpp' ? 'C++' : lang === 'python' ? 'Python' : 'JavaScript'}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={handleNewSession}
                 className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
