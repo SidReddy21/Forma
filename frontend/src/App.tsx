@@ -139,9 +139,17 @@ export default function App() {
     <div className="flex flex-col w-full h-screen bg-slate-900 text-slate-100">
       {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-blue-400">{session.name}</h1>
-          <p className="text-sm text-slate-400">ID: {session.id.substring(0, 12)}...</p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => window.history.pushState({}, '', window.location.pathname)}
+            className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors text-sm font-semibold"
+          >
+            Home
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-blue-400">{session.name}</h1>
+            <p className="text-sm text-slate-400">ID: {session.id.substring(0, 12)}...</p>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
