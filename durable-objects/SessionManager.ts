@@ -3,19 +3,20 @@
  * Manages collaborative editing sessions with conflict-free synchronization
  */
 
-import { DurableObjectState, Collaborator, CodeChange, RealtimeMessage } from '../types';
+import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage } from '../types';
 
 export class SessionManager {
-  private state: DurableObjectState;
+  private state: SessionStateShape;
   private env: any;
-  private storage: DurableObjectStorage;
+  private storage: any;
   private pendingUpdates: any[] = [];
 
-  constructor(state: DurableObjectStorage, env: any) {
-    this.storage = state;
+  constructor(state: any, env: any) {
+    // Cloudflare Durable Objects provide DurableObjectState with .id and .storage
+    this.storage = state?.storage;
     this.env = env;
     this.state = {
-      sessionId: state.id.toString(),
+      sessionId: state?.id?.toString?.() || '',
       collaborators: new Map(),
       changeHistory: [],
       currentContent: '',
@@ -82,7 +83,8 @@ export class SessionManager {
   }
 
   private async handleJoin(request: Request): Promise<Response> {
-    const { userId, username, color } = await request.json();
+    const body = (await request.json()) as any;
+    const { userId, username, color } = body;
 
     const collaborator: Collaborator = {
       id: userId,
@@ -111,7 +113,7 @@ export class SessionManager {
   }
 
   private async handleEdit(request: Request): Promise<Response> {
-    const change: CodeChange = await request.json();
+    const change = (await request.json()) as CodeChange;
 
     // Conflict detection: check for overlapping locks
     if (this.isLockedRange(change.position)) {
@@ -141,7 +143,8 @@ export class SessionManager {
   }
 
   private async handleCursorMove(request: Request): Promise<Response> {
-    const { userId, line, column } = await request.json();
+    const body = (await request.json()) as any;
+    const { userId, line, column } = body;
 
     const collaborator = this.state.collaborators.get(userId);
     if (collaborator) {
@@ -162,7 +165,8 @@ export class SessionManager {
   }
 
   private async handleLeave(request: Request): Promise<Response> {
-    const { userId } = await request.json();
+    const body = (await request.json()) as any;
+    const { userId } = body;
 
     this.state.collaborators.delete(userId);
     this.state.locks.delete(userId);
@@ -177,7 +181,7 @@ export class SessionManager {
 
   private async handleBroadcast(request: Request): Promise<Response> {
     // Handle incoming update/edit message
-    const message = await request.json();
+    const message = (await request.json()) as any;
     
     // Add to pending updates queue for polling clients
     this.pendingUpdates.push({
@@ -192,8 +196,17 @@ export class SessionManager {
 
     // Persist if it's an edit
     if (message.type === 'edit') {
-      this.state.changeHistory.push(message);
-      this.state.currentContent = message.newContent || this.state.currentContent;
+      // Persist edit minimally into change history
+      this.state.changeHistory.push({
+        id: crypto.randomUUID(),
+        userId: message.userId,
+        sessionId: this.state.sessionId,
+        type: 'replace',
+        position: { line: 0, column: 0 },
+        content: message.newContent ?? '',
+        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+      });
+      this.state.currentContent = message.newContent ?? this.state.currentContent;
       await this.persistState();
     }
 

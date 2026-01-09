@@ -11,6 +11,7 @@ interface CollaborationStore {
   removeCollaborator: (id: string) => void;
   updateCollaborator: (id: string, updates: Partial<Collaborator>) => void;
   recordChange: () => void;
+  clearCollaborators: () => void;
 }
 
 export const useCollaborationStore = create<CollaborationStore>((set) => ({
@@ -43,5 +44,10 @@ export const useCollaborationStore = create<CollaborationStore>((set) => ({
         ...state.stats,
         changeCount: state.stats.changeCount + 1,
       },
+    })),
+
+  clearCollaborators: () =>
+    set(() => ({
+      collaborators: [],
     })),
 }));
