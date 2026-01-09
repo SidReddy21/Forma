@@ -483,20 +483,85 @@ For each suggestion, explain:
   }
 
   private analyzeCpp(code: string, lines: string[], bugs: any[], improvements: any[]): void {
-    lines.forEach((line, idx) => {
-      const lineNum = idx + 1;
+    // First pass: track memory allocations
+    const newAllocations = new Map<number, string>();
+    const deletedVars = new Set<string>();
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmed = line.trim();
       
-      if (!trimmed || trimmed.startsWith('//')) return;
+      // Track new allocations
+      const newMatch = trimmed.match(/(\w+)\s*=\s*new\s+/);
+      if (newMatch) {
+        newAllocations.set(i + 1, newMatch[1]);
+      }
       
-      // Critical: Memory leaks
-      if (trimmed.includes('new ') && !code.includes('delete')) {
+      // Track deletes
+      if (trimmed.includes('delete')) {
+        const deleteMatch = trimmed.match(/delete\s+(\w+)/);
+        if (deleteMatch) {
+          deletedVars.add(deleteMatch[1]);
+        }
+      }
+    }
+    
+    // Check for memory leaks (allocations without delete)
+    for (const [lineNum, varName] of newAllocations) {
+      if (!deletedVars.has(varName)) {
         bugs.push({
           line: lineNum,
           severity: 'error',
-          message: 'Memory allocation without corresponding delete',
-          suggestion: 'Use smart pointers (std::unique_ptr, std::shared_ptr) to avoid manual memory management and potential memory leaks'
+          message: `Memory leak: variable "${varName}" allocated with "new" but never deleted`,
+          suggestion: `Either call "delete ${varName};" before program end, or use smart pointers (std::unique_ptr<T> ${varName}(new T))`,
         });
+      }
+    }
+    
+    // Line-by-line analysis
+    for (let idx = 0; idx < lines.length; idx++) {
+      const lineNum = idx + 1;
+      const line = lines[idx];
+      const trimmed = line.trim();
+      
+      if (!trimmed || trimmed.startsWith('//')) continue;
+      
+      // Critical: Assignment in condition (= instead of ==)
+      if (trimmed.match(/if\s*\([^)]*=\s*\d+[^=]/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'error',
+          message: 'Assignment in condition: using = instead of ==',
+          suggestion: 'Use == for comparison in conditions. Did you mean: ' + trimmed.replace(/(\w+)\s*=\s*(\d+)/, '$1 == $2') + ' ?'
+        });
+      }
+      
+      // Critical: Invalid assignment (expr = value)
+      if (trimmed.match(/[a-zA-Z_]\w*\s*\+\s*[a-zA-Z_]\w*\s*=/) || 
+          trimmed.match(/[a-zA-Z_]\w*\s*\-\s*[a-zA-Z_]\w*\s*=/) ||
+          trimmed.match(/[a-zA-Z_]\w*\s*\*\s*[a-zA-Z_]\w*\s*=/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'error',
+          message: 'Invalid assignment to non-lvalue expression',
+          suggestion: 'You cannot assign to an expression like "a + b". Did you mean compound assignment (+=, -=) or use parentheses?'
+        });
+      }
+      
+      // Critical: Buffer overflow in loop
+      if (trimmed.match(/for\s*\([^)]*<=\s*\d+/) && lines[idx - 1]?.match(/\[\d+\]/) || 
+          lines[idx + 1]?.match(/\[\d+\]/)) {
+        // Loop with <= should be < for array bounds
+        const sizeMatch = lines[idx - 1]?.match(/\[(\d+)\]/) || lines[idx + 1]?.match(/\[(\d+)\]/);
+        if (sizeMatch) {
+          const size = sizeMatch[1];
+          bugs.push({
+            line: lineNum,
+            severity: 'error',
+            message: `Buffer overflow risk: loop condition uses <= but array size is ${size}`,
+            suggestion: `Change loop condition from "i <= ${size}" to "i < ${size}" to avoid accessing arr[${size}] which is out of bounds`
+          });
+        }
       }
       
       // Critical: Using namespace std
@@ -509,15 +574,25 @@ For each suggestion, explain:
         });
       }
       
-      // Check for C-style arrays
-      if (trimmed.match(/char\s+\w+\[\d+\]/) || trimmed.match(/int\s+\w+\[\d+\]/)) {
-        improvements.push({
-          category: 'Modern C++',
-          suggestions: [`Use std::string or std::array instead of C-style arrays at line ${lineNum}`]
+      // Critical: Undefined behavior - signed integer overflow
+      if (trimmed.includes('++') && trimmed.includes('INT_MAX')) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Potential integer overflow',
+          suggestion: 'Check bounds before incrementing near INT_MAX'
         });
       }
       
-      // Check for C headers
+      // Improvement: C-style arrays
+      if (trimmed.match(/\b(int|char|float|double)\s+\w+\[\d+\]/) && !trimmed.includes('std::')) {
+        improvements.push({
+          category: 'Modern C++',
+          suggestions: [`Use std::array<int, N> or std::vector instead of C-style array at line ${lineNum}`]
+        });
+      }
+      
+      // Improvement: C headers
       if (trimmed.includes('#include <stdio.h>') || trimmed.includes('#include <stdlib.h>') || trimmed.includes('#include <string.h>')) {
         improvements.push({
           category: 'C++ Best Practices',
@@ -525,19 +600,14 @@ For each suggestion, explain:
         });
       }
       
-      // Check for raw pointers
-      if (trimmed.match(/\w+\s+\*\w+/) && !trimmed.includes('const') && !trimmed.includes('std::')) {
-        improvements.push({ category: 'Modern C++', suggestions: [`Consider using smart pointers or references instead of raw pointers at line ${lineNum}`] });
-      }
-      
-      // Check for potential null pointer dereference
-      if (trimmed.includes('->') && !code.includes('if (') && !code.includes('if(')) {
+      // Improvement: Raw pointers
+      if (trimmed.match(/\w+\s+\*\w+\s*[=;]/) && !trimmed.includes('const') && !trimmed.includes('std::') && !trimmed.includes('delete')) {
         improvements.push({
-          category: 'Safety',
-          suggestions: [`Check pointer is non-null before dereferencing at line ${lineNum}`]
+          category: 'Modern C++',
+          suggestions: [`Consider using std::unique_ptr or std::shared_ptr instead of raw pointer at line ${lineNum}`]
         });
       }
-    });
+    }
     
     if (bugs.length === 0) {
       bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding memory safety checks.' });
