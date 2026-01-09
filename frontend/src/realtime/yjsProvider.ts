@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import * as monaco from 'monaco-editor';
 import { useCollaborationStore } from '../store/collaborationStore';
+import { useUserStore } from '../store/userStore';
 import api from '../services/api';
 
 export interface YjsHandle {
@@ -54,21 +55,45 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
   // Aggressive polling: sync every 2 seconds for responsive collaboration
   let lastSyncTime = Date.now();
   let lastSyncedContent = text.toString();
+  let lastSyncedUsername = username;
   let applyingRemote = false;
+  
+  // Initial sync to register user immediately
+  (async () => {
+    try {
+      const yState = Y.encodeStateAsUpdate(doc);
+      const currentUsername = useUserStore.getState().username;
+      await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
+        type: 'sync',
+        content: text.toString(),
+        yState: Array.from(yState),
+        awarenessState: [],
+        timestamp: Date.now(),
+        username: currentUsername,
+      });
+      lastSyncedUsername = currentUsername;
+      console.log(`[Yjs] Initial sync completed for user "${currentUsername}"`);
+    } catch (err) {
+      console.error(`[Yjs] Initial sync error:`, err);
+    }
+  })();
   
   const httpSyncInterval = setInterval(async () => {
     try {
       const now = Date.now();
       const currentContent = doc.getText('monaco').toString();
+      const currentUsername = useUserStore.getState().username; // Always get fresh username
       
       // Always sync awareness state for presence
       const awarenessUpdate = awareness ? Array.from(awareness.getLocalState() ? [awareness.getLocalState()] : []) : [];
       
-      // Only sync if content has changed OR periodically for awareness
-      const shouldSync = currentContent !== lastSyncedContent || now - lastSyncTime > 10000;
+      // Sync if content changed OR periodically for awareness OR username changed
+      const shouldSync = currentContent !== lastSyncedContent || now - lastSyncTime > 10000 || currentUsername !== lastSyncedUsername;
       
       if (shouldSync) {
-        console.log(`[Yjs] HTTP sync triggered - content: ${currentContent !== lastSyncedContent}, periodic: ${now - lastSyncTime > 10000}`);
+        const reason = currentContent !== lastSyncedContent ? 'content' : 
+                       currentUsername !== lastSyncedUsername ? 'username' : 'periodic';
+        console.log(`[Yjs] HTTP sync triggered - reason: ${reason}, username: "${currentUsername}"`);
         
         // Send to server with full CRDT state and awareness
         const yState = Y.encodeStateAsUpdate(doc);
@@ -78,12 +103,13 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string, 
           yState: Array.from(yState),
           awarenessState: awarenessUpdate,
           timestamp: now,
-          username,
+          username: currentUsername,
         });
         
         lastSyncedContent = currentContent;
+        lastSyncedUsername = currentUsername;
         lastSyncTime = now;
-        console.log(`[Yjs] HTTP sync completed - sent ${currentContent.length} chars`);
+        console.log(`[Yjs] HTTP sync completed - sent ${currentContent.length} chars, username: "${currentUsername}"`);
       }
       
       // Also fetch remote updates and collaborator list
