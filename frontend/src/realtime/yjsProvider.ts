@@ -11,14 +11,13 @@ export interface YjsHandle {
   destroy: () => void;
 }
 
-export function initYjsMonaco(editor: any, sessionId: string, username: string): YjsHandle {
+export function initYjsMonaco(editor: any, sessionId: string, username: string, userId: string): YjsHandle {
   const doc = new Y.Doc();
   const roomId = `codemeld-${sessionId}`;
   
-  console.log(`[Yjs] Initializing CRDT with sessionId: ${sessionId}, roomId: ${roomId}`);
+  console.log(`[Yjs] Initializing CRDT with sessionId: ${sessionId}, roomId: ${roomId}, userId: ${userId}, username: ${username}`);
   
   // Use IndexedDB for local persistence (enables sync across tabs in same browser)
-  // Store key uses sessionId to isolate sessions
   const persistence = new IndexeddbPersistence(roomId, doc);
   
   persistence.whenSynced.then(() => {
@@ -38,55 +37,87 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
     }
   }
 
-  // Initialize awareness for collaborative state
-  // y-indexeddb provides awareness immediately, though it may sync async
-  let awareness: any = null;
-  try {
-    awareness = persistence.awareness;
-    if (!awareness) {
-      throw new Error('persistence.awareness is not available');
-    }
+  // Create awareness for collaborative state using doc.awareness
+  const awareness = doc.awareness;
+  if (awareness) {
     console.log(`[Yjs] Awareness initialized for room "${roomId}"`);
-    awareness.setLocalStateField('user', {
-      name: username,
-      color: '#3b82f6',
+    awareness.setLocalState({
+      user: {
+        name: username,
+        color: '#3b82f6',
+      },
+      cursor: { line: 0, column: 0 },
     });
     console.log(`[Yjs] Set local user state: "${username}"`);
-  } catch (err) {
-    console.error(`[Yjs] Error initializing awareness:`, err);
   }
   
-  // HTTP-based sync: every 30 seconds, sync local CRDT state to server
+  // Aggressive polling: sync every 2 seconds for responsive collaboration
   let lastSyncTime = Date.now();
+  let lastSyncedContent = text.toString();
+  let applyingRemote = false;
+  
   const httpSyncInterval = setInterval(async () => {
     try {
       const now = Date.now();
-      console.log(`[Yjs] HTTP sync triggered for room "${roomId}" (last sync: ${(now - lastSyncTime) / 1000}s ago)`);
-      
-      // Get current content from CRDT
       const currentContent = doc.getText('monaco').toString();
       
-      // Send to server
-      await api.put(`/api/sessions/${sessionId}`, {
-        content: currentContent,
-        updatedAt: now,
-      });
+      // Only sync if content has changed
+      if (currentContent !== lastSyncedContent) {
+        console.log(`[Yjs] HTTP sync triggered - content changed, size: ${currentContent.length}`);
+        
+        // Send to server with full CRDT state
+        const yState = Y.encodeStateAsUpdate(doc);
+        await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
+          type: 'sync',
+          content: currentContent,
+          yState: Array.from(yState),
+          timestamp: now,
+          username,
+        });
+        
+        lastSyncedContent = currentContent;
+        lastSyncTime = now;
+        console.log(`[Yjs] HTTP sync completed - sent ${currentContent.length} chars`);
+      }
       
-      lastSyncTime = now;
-      console.log(`[Yjs] HTTP sync completed for room "${roomId}"`);
+      // Also fetch remote updates
+      try {
+        const response = await api.get(
+          `/api/realtime?sessionId=${sessionId}&userId=${userId}&lastSync=${lastSyncTime}`
+        );
+        
+        if (response.data && response.data.updates && response.data.updates.length > 0) {
+          console.log(`[Yjs] Received ${response.data.updates.length} remote updates`);
+          response.data.updates.forEach((update: any) => {
+            try {
+              const yUpdate = new Uint8Array(update.yState);
+              Y.applyUpdate(doc, yUpdate, 'remote');
+              console.log(`[Yjs] Applied remote update`);
+            } catch (err) {
+              console.error(`[Yjs] Error applying remote update:`, err);
+            }
+          });
+        }
+      } catch (err) {
+        console.error(`[Yjs] Error fetching remote updates:`, err);
+      }
     } catch (err) {
       console.error(`[Yjs] HTTP sync error for room "${roomId}":`, err);
     }
-  }, 30000); // Every 30 seconds
+  }, 2000); // Every 2 seconds for responsiveness
   
   // On page unload, do one final sync
   const beforeUnloadHandler = async () => {
     clearInterval(httpSyncInterval);
     try {
       const currentContent = doc.getText('monaco').toString();
-      await api.put(`/api/sessions/${sessionId}`, {
+      const yState = Y.encodeStateAsUpdate(doc);
+      await api.post(`/api/realtime?sessionId=${sessionId}&userId=${userId}`, {
+        type: 'sync',
         content: currentContent,
-        updatedAt: Date.now(),
+        yState: Array.from(yState),
+        timestamp: Date.now(),
+        username,
       });
       console.log(`[Yjs] Final sync on unload for room "${roomId}"`);
     } catch (err) {
@@ -96,7 +127,6 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
   window.addEventListener('beforeunload', beforeUnloadHandler);
 
   // Custom binding between Monaco and Yjs
-  let applyingRemote = false;
   const disposable = model.onDidChangeContent((e) => {
     if (applyingRemote) return;
     try {
@@ -167,7 +197,7 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
 
   // Update collaborator store on awareness updates
   const updateCollaborators = () => {
-    if (!awareness) return; // Awareness not yet initialized
+    if (!awareness) return;
     const states = Array.from(awareness.getStates().values());
     console.log(`[Yjs] Awareness states:`, states.length, states);
     const collabs = states
@@ -175,11 +205,10 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
         id: `peer-${idx}`,
         username: s?.user?.name || 'Unknown',
         color: s?.user?.color || '#8b5cf6',
-        cursor: { line: 0, column: 0 },
+        cursor: s?.cursor || { line: 0, column: 0 },
         isActive: true,
         lastSeen: Date.now(),
       }));
-    // Replace current collaborators list for clarity
     console.log(`[Yjs] Updating collaborators:`, collabs);
     try {
       useCollaborationStore.getState().setCollaborators(collabs);
@@ -204,7 +233,9 @@ export function initYjsMonaco(editor: any, sessionId: string, username: string):
   const destroy = () => {
     clearInterval(httpSyncInterval);
     window.removeEventListener('beforeunload', beforeUnloadHandler);
-    awareness.off('update', updateCollaborators);
+    if (awareness) {
+      awareness.off('update', updateCollaborators);
+    }
     disposable.dispose();
     persistence?.destroy();
     doc.destroy();

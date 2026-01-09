@@ -196,7 +196,54 @@ export class SessionManager {
       }
     }
 
-    // Persist if it's an operation
+    // Handle Yjs sync messages - the primary sync mechanism
+    if (message.type === 'sync' && message.yState) {
+      try {
+        console.log(`[SessionManager] Received Yjs sync from ${message.username} (userId: ${message.userId})`);
+        
+        // Update collaborator info
+        const collaborator = this.state.collaborators.get(message.userId);
+        if (collaborator) {
+          collaborator.lastSeen = Date.now();
+          collaborator.isActive = true;
+        }
+        
+        // Update current content from message
+        if (message.content && typeof message.content === 'string') {
+          this.state.currentContent = message.content;
+        }
+        
+        // Store Yjs update for other clients to pull
+        const yStateUpdate = {
+          yState: message.yState,
+          userId: message.userId,
+          username: message.username,
+          timestamp: message.timestamp || Date.now(),
+        };
+        
+        this.pendingUpdates.push({
+          type: 'yjs_sync',
+          ...yStateUpdate,
+        });
+        
+        if (this.pendingUpdates.length > 200) this.pendingUpdates.shift();
+        
+        await this.persistState();
+        
+        return new Response(
+          JSON.stringify({ success: true, synced: true, timestamp: Date.now() }),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      } catch (err) {
+        console.error('Error handling Yjs sync:', err);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to sync Yjs state' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Persist if it's an operation (legacy support)
     if (message.type === 'operation' && message.operation) {
       const op: Operation = message.operation as Operation;
       const baseVersion = typeof op.baseVersion === 'number' ? op.baseVersion : undefined;
@@ -263,7 +310,13 @@ export class SessionManager {
     const userId = url.searchParams.get('userId');
 
     // Filter updates since last sync
-    const updates = this.pendingUpdates.filter((u) => u.timestamp > lastSync);
+    const allUpdates = this.pendingUpdates.filter((u) => u.timestamp > lastSync);
+    
+    // Separate Yjs updates from other updates
+    const yjsUpdates = allUpdates.filter(u => u.type === 'yjs_sync');
+    const otherUpdates = allUpdates.filter(u => u.type !== 'yjs_sync');
+
+    console.log(`[SessionManager] Sync: found ${yjsUpdates.length} Yjs updates, ${otherUpdates.length} other updates for userId: ${userId}`);
 
     return new Response(
       JSON.stringify({
@@ -276,7 +329,8 @@ export class SessionManager {
           cursor: c.cursor,
           isActive: c.isActive,
         })),
-        updates,
+        updates: yjsUpdates,
+        otherUpdates,
         timestamp: Date.now(),
       }),
       { headers: { 'Content-Type': 'application/json' } }

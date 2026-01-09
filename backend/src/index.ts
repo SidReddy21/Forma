@@ -272,8 +272,11 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
   const sessionId = url.searchParams.get('sessionId');
   const userId = url.searchParams.get('userId');
 
-  if (!sessionId || !userId) {
-    return addCORSHeaders(new Response('Missing sessionId or userId', { status: 400 }));
+  if (!sessionId) {
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'Missing sessionId' }), { 
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
 
   try {
@@ -281,8 +284,9 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
     const stub = env.SESSIONS.get(env.SESSIONS.idFromName(sessionId));
 
     if (request.method === 'GET') {
-      // Polling endpoint - returns current state and changes since last sync
+      // Polling endpoint - returns current state and Yjs updates since last sync
       const lastSyncTime = url.searchParams.get('lastSync') || '0';
+      console.log(`[handleRealtime] GET sync request: sessionId=${sessionId}, userId=${userId}, lastSync=${lastSyncTime}`);
       const response = await stub.fetch(
         new Request(`https://session/sync?lastSync=${lastSyncTime}&userId=${userId}`, {
           method: 'GET',
@@ -292,8 +296,9 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
     }
 
     if (request.method === 'POST') {
-      // Send edit/cursor update to Durable Object
+      // Send sync/edit/cursor update to Durable Object
       const message = await request.json();
+      console.log(`[handleRealtime] POST request: type=${message.type}, sessionId=${sessionId}, userId=${userId}`);
       
       // Route based on message type
       let path = '/broadcast';
@@ -303,6 +308,8 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
         path = '/leave';
       } else if (message.type === 'cursor') {
         path = '/cursor';
+      } else if (message.type === 'sync') {
+        path = '/broadcast'; // Sync goes to broadcast handler which recognizes yjs_sync type
       }
       
       const response = await stub.fetch(
@@ -314,10 +321,16 @@ async function handleRealtime(request: Request, env: Env): Promise<Response> {
       return addCORSHeaders(response);
     }
 
-    return addCORSHeaders(new Response('Method not allowed', { status: 405 }));
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'Method not allowed' }), { 
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    }));
   } catch (error) {
     console.error('Realtime error:', error);
-    return addCORSHeaders(new Response('Realtime service error', { status: 500 }));
+    return addCORSHeaders(new Response(JSON.stringify({ error: 'Realtime service error' }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
 }
 
