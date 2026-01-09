@@ -180,7 +180,7 @@ export class SessionManager {
   }
 
   private async handleBroadcast(request: Request): Promise<Response> {
-    // Handle incoming update/edit message
+    // Handle incoming operation/edit message
     const message = (await request.json()) as any;
     
     // Add to pending updates queue for polling clients
@@ -194,19 +194,19 @@ export class SessionManager {
       this.pendingUpdates.shift();
     }
 
-    // Persist if it's an edit
-    if (message.type === 'edit') {
-      // Persist edit minimally into change history
+    // Persist if it's an operation
+    if (message.type === 'operation' && message.operation) {
+      // Apply operation to current content
+      this.state.currentContent = this.applyOperationToContent(this.state.currentContent, message.operation);
       this.state.changeHistory.push({
         id: crypto.randomUUID(),
         userId: message.userId,
         sessionId: this.state.sessionId,
-        type: 'replace',
-        position: { line: 0, column: 0 },
-        content: message.newContent ?? '',
+        type: message.operation.type,
+        position: message.operation.position,
+        content: message.operation.content || '',
         timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
       });
-      this.state.currentContent = message.newContent ?? this.state.currentContent;
       await this.persistState();
     }
 
@@ -302,6 +302,27 @@ export class SessionManager {
       }
     }
     return false;
+  }
+
+  private applyOperationToContent(content: string, operation: any): string {
+    const { type, position, content: opContent, length, oldLength } = operation;
+    
+    // Convert line/column to absolute position
+    const lines = content.split('\n');
+    let absolutePos = 0;
+    for (let i = 0; i < position.line; i++) {
+      absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
+    }
+    absolutePos += position.column;
+
+    if (type === 'insert') {
+      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos);
+    } else if (type === 'delete') {
+      return content.slice(0, absolutePos) + content.slice(absolutePos + length);
+    } else if (type === 'replace') {
+      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos + oldLength);
+    }
+    return content;
   }
 
   private async broadcastEdit(change: CodeChange): Promise<void> {

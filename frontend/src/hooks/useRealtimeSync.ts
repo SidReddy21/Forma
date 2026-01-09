@@ -31,6 +31,9 @@ export function useRealtimeSync() {
     const userId = syncStateRef.current.userId;
     const sessionId = session.id;
 
+    // Store current username in ref so heartbeat always uses latest
+    const usernameRef = { current: username };
+
     // Join the session and refresh heartbeat periodically
     const heartbeat = async () => {
       try {
@@ -38,7 +41,7 @@ export function useRealtimeSync() {
           sessionId,
           userId,
           type: 'join',
-          username: username,
+          username: usernameRef.current,
         }, { params: { sessionId, userId } });
       } catch (error) {
         console.error('Heartbeat failed:', error);
@@ -75,18 +78,19 @@ export function useRealtimeSync() {
           });
         }
 
-        // Apply remote updates - ONLY if content actually changed from remote
+        // Apply remote operations instead of full-content replacement
         if (updates && Array.isArray(updates) && updates.length > 0) {
           let latestTs = syncStateRef.current.lastSync;
           updates.forEach((update: any) => {
-            if (update.type === 'edit' && update.userId !== userId && update.newContent) {
-              // Only apply if the new content is different from what we last saw
-              if (update.newContent !== syncStateRef.current.lastRemoteContent) {
-                syncStateRef.current.lastRemoteContent = update.newContent;
-                updateSessionContent(update.newContent);
+            if (update.type === 'operation' && update.userId !== userId && update.operation) {
+              // Apply operation to current content
+              const newContent = applyOperation(syncStateRef.current.lastRemoteContent, update.operation);
+              if (newContent !== syncStateRef.current.lastRemoteContent) {
+                syncStateRef.current.lastRemoteContent = newContent;
+                updateSessionContent(newContent);
                 if (editorRef) {
                   const currentPosition = editorRef.getPosition();
-                  editorRef.setValue(update.newContent);
+                  editorRef.setValue(newContent);
                   if (currentPosition) {
                     editorRef.setPosition(currentPosition);
                   }
@@ -120,20 +124,26 @@ export function useRealtimeSync() {
         clearInterval(syncStateRef.current.heartbeatInterval);
       }
     };
-  }, [session, updateSessionContent, editorRef]);
+  }, [session, updateSessionContent, editorRef, username]);
 
-  // Send local edits to backend
+// Send local edits to backend as operations
   const sendEdit = async (newContent: string) => {
-    if (!session) return;
+    if (!session || !editorRef) return;
 
     const userId = syncStateRef.current.userId;
+    const oldContent = syncStateRef.current.lastRemoteContent;
+    
+    // Compute the diff to create an operation
+    const operation = computeOperation(oldContent, newContent);
+    if (!operation) return; // No change
     
     try {
+      // Send operation instead of full content
       await api.post('/api/realtime', {
         sessionId: session.id,
         userId,
-        type: 'edit',
-        newContent,
+        type: 'operation',
+        operation,
         timestamp: Date.now(),
       }, {
         params: {
@@ -141,12 +151,74 @@ export function useRealtimeSync() {
           userId,
         },
       });
+      // Update local tracking
+      syncStateRef.current.lastRemoteContent = newContent;
       // Touch heartbeat on edit
-      try { await api.post('/api/realtime', { sessionId: session.id, userId, type: 'join' }, { params: { sessionId: session.id, userId } }); } catch {}
+      try { await api.post('/api/realtime', { sessionId: session.id, userId, type: 'join', username }, { params: { sessionId: session.id, userId } }); } catch {}
     } catch (error) {
       console.error('Failed to send edit:', error);
     }
   };
 
   return { sendEdit };
+}
+
+// Compute minimal operation (insert or delete) from old to new content
+function computeOperation(oldContent: string, newContent: string): any {
+  if (oldContent === newContent) return null;
+
+  // Find first difference
+  let startPos = 0;
+  while (startPos < oldContent.length && startPos < newContent.length && oldContent[startPos] === newContent[startPos]) {
+    startPos++;
+  }
+
+  // Find last difference
+  let oldEndPos = oldContent.length;
+  let newEndPos = newContent.length;
+  while (oldEndPos > startPos && newEndPos > startPos && oldContent[oldEndPos - 1] === newContent[newEndPos - 1]) {
+    oldEndPos--;
+    newEndPos--;
+  }
+
+  const deletedLength = oldEndPos - startPos;
+  const insertedText = newContent.slice(startPos, newEndPos);
+
+  // Convert absolute position to line/column
+  const lines = oldContent.slice(0, startPos).split('\n');
+  const line = lines.length - 1;
+  const column = lines[lines.length - 1].length;
+
+  if (deletedLength === 0 && insertedText.length > 0) {
+    // Insert only
+    return { type: 'insert', position: { line, column }, content: insertedText };
+  } else if (insertedText.length === 0 && deletedLength > 0) {
+    // Delete only
+    return { type: 'delete', position: { line, column }, length: deletedLength };
+  } else if (deletedLength > 0 && insertedText.length > 0) {
+    // Replace
+    return { type: 'replace', position: { line, column }, oldLength: deletedLength, content: insertedText };
+  }
+  return null;
+}
+// Apply an operation to content
+function applyOperation(content: string, operation: any): string {
+  const { type, position, content: opContent, length, oldLength } = operation;
+  
+  // Convert line/column to absolute position
+  const lines = content.split('\n');
+  let absolutePos = 0;
+  for (let i = 0; i < position.line; i++) {
+    absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
+  }
+  absolutePos += position.column;
+
+  if (type === 'insert') {
+    return content.slice(0, absolutePos) + opContent + content.slice(absolutePos);
+  } else if (type === 'delete') {
+    return content.slice(0, absolutePos) + content.slice(absolutePos + length);
+  } else if (type === 'replace') {
+    return content.slice(0, absolutePos) + opContent + content.slice(absolutePos + oldLength);
+  }
+  return content;
 }
