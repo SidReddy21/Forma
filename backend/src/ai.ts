@@ -4,6 +4,7 @@
  */
 
 import { AICompletion, CodeAnalysisReport } from './types';
+import { executeWithPiston } from './execute';
 
 export interface LlamaRequest {
   prompt: string;
@@ -71,6 +72,23 @@ export class CodeAIService {
 
     try {
       console.log('Analyzing code, length:', code.length);
+      // 1) Run the code first to collect compiler/runtime errors
+      let executionBug: CodeAnalysisReport['bugs'][number] | null = null;
+      try {
+        const exec = await executeWithPiston(code, language);
+        const hadFailure = !!exec.error || (exec.meta.exitCode !== null && exec.meta.exitCode !== 0);
+        if (hadFailure) {
+          const lineFromErr = this.extractLineFromError(exec.error || '');
+          executionBug = {
+            line: lineFromErr,
+            severity: 'error',
+            message: `Compiler/Runtime: ${this.summarizeError(exec.error || '')}`,
+            suggestion: 'Fix the reported error and re-run analysis'
+          };
+        }
+      } catch (runErr) {
+        console.warn('Execution step failed, continuing with static analysis:', runErr);
+      }
       
       // Use intelligent fallback directly for now
       console.log('Using intelligent fallback for code analysis');
@@ -92,6 +110,10 @@ export class CodeAIService {
         // Only use AI response if it has actual bugs detected
         if (parsed.bugs && parsed.bugs.length > 0 && parsed.bugs[0].message !== 'Could not parse analysis response') {
           console.log('Using AI analysis');
+          // Prepend execution bug if present and not already included
+          if (executionBug) {
+            parsed.bugs = [executionBug, ...parsed.bugs];
+          }
           return parsed;
         }
       } catch (aiError) {
@@ -100,7 +122,11 @@ export class CodeAIService {
       
       // Fall back to intelligent analysis
       console.log('Falling back to intelligent analysis');
-      return this.parseAnalysisResponse(fallbackResponse);
+      const parsedFallback = this.parseAnalysisResponse(fallbackResponse);
+      if (executionBug) {
+        parsedFallback.bugs = [executionBug, ...parsedFallback.bugs];
+      }
+      return parsedFallback;
     } catch (error) {
       console.error('Analysis error:', error);
       // Return basic fallback
@@ -118,6 +144,24 @@ export class CodeAIService {
         complexity: 'medium'
       };
     }
+  }
+
+  private extractLineFromError(errorText: string): number {
+    if (!errorText) return 1;
+    // Patterns:
+    // - filename:line:col: error: ... (gcc/clang, javac)
+    // - line X, column Y
+    // - at line X
+    const m1 = errorText.match(/:(\d+):(?:\d+):\s*error/i);
+    if (m1) return parseInt(m1[1], 10) || 1;
+    const m2 = errorText.match(/line\s+(\d+)/i);
+    if (m2) return parseInt(m2[1], 10) || 1;
+    return 1;
+  }
+
+  private summarizeError(errorText: string): string {
+    const text = (errorText || '').split('\n').slice(0, 3).join(' ').trim();
+    return text.length > 240 ? text.substring(0, 240) + '…' : text;
   }
 
   /**
