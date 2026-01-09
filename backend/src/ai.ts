@@ -270,115 +270,29 @@ For each suggestion, explain:
     console.log('Using intelligent fallback for analysis');
     // Extract code from markdown code blocks in the prompt
     let code = '';
-    const codeBlockMatch = prompt.match(/```(?:\w+)?\n([\s\S]*?)```/);
+    let language = 'unknown';
+    const codeBlockMatch = prompt.match(/```(\w+)?\n([\s\S]*?)```/);
     if (codeBlockMatch) {
-      code = codeBlockMatch[1].trim();
+      if (codeBlockMatch[1]) language = codeBlockMatch[1];
+      code = codeBlockMatch[2].trim();
     }
     
     console.log('Extracted code:', code.substring(0, 100));
     console.log('Code length:', code.length);
+    console.log('Detected language:', language);
     
     if (prompt.includes('bug') || prompt.includes('analyze')) {
-      // Do basic code analysis
       const lines = code.split('\n').filter(line => line.trim());
-      const bugs: any[] = [];
-      const improvements: any[] = [];
-      
-      console.log('Lines to analyze:', lines.length);
-      
-      // Basic syntax checks
-      lines.forEach((line, idx) => {
-        const lineNum = idx + 1;
-        const trimmed = line.trim();
-        
-        // Skip empty lines and comments
-        if (!trimmed || trimmed.startsWith('//')) return;
-        
-        // Check for common issues
-        if (trimmed.match(/var\s+\w+/)) {
-          console.log('Found var at line', lineNum);
-          bugs.push({
-            line: lineNum,
-            severity: 'warning',
-            message: 'Use const or let instead of var',
-            suggestion: 'Replace var with const or let for better scoping and avoiding hoisting issues'
-          });
-        }
-        
-        if (trimmed.includes('==') && !trimmed.includes('===')) {
-          console.log('Found == at line', lineNum);
-          bugs.push({
-            line: lineNum,
-            severity: 'warning',
-            message: 'Use strict equality (===) instead of loose equality (==)',
-            suggestion: 'Replace == with === to avoid type coercion issues'
-          });
-        }
-        
-        if (trimmed.match(/console\.(log|error|warn)/)) {
-          console.log('Found console at line', lineNum);
-          improvements.push({
-            category: 'Code Quality',
-            suggestions: [`Remove console.${trimmed.match(/console\.(\w+)/)?.[1]} statement on line ${lineNum} before production`]
-          });
-        }
-      });
-      
-      // Calculate basic metrics
-      const codeLength = code.trim().length;
-      const nonEmptyLines = lines.length;
-      const hasComments = code.includes('//') || code.includes('/*');
-      const complexity = codeLength < 100 ? 'low' : codeLength < 500 ? 'medium' : 'high';
-      const testCoverage = codeLength > 200 ? 0.3 : codeLength > 100 ? 0.2 : 0;
-      
-      if (!hasComments && codeLength > 50) {
-        improvements.push({
-          category: 'Documentation',
-          suggestions: ['Add comments to explain logic and complex expressions']
-        });
-      }
-      
-      // If code has substance, provide feedback
-      if (nonEmptyLines > 2) {
-        // If no bugs found, give positive feedback
-        if (bugs.length === 0) {
-          bugs.push({
-            line: 1,
-            severity: 'info',
-            message: 'No major issues detected',
-            suggestion: 'Code structure looks good. Consider adding more tests for edge cases.'
-          });
-        }
-        
-        // Add general improvements
-        if (improvements.length === 0) {
-          improvements.push({
-            category: 'Best Practices',
-            suggestions: ['Use descriptive variable names', 'Consider error handling for edge cases']
-          });
-        }
-      } else {
-        // Code is too short
-        bugs.push({
-          line: 1,
-          severity: 'info',
-          message: 'Code sample too short for meaningful analysis',
-          suggestion: 'Write more code (at least 3-4 lines of actual logic) to get useful feedback'
-        });
-      }
-      
-      const analysisResult = {
-        bugs,
-        improvements,
-        testCoverage,
-        complexity,
-      };
-      
-      console.log('Analysis result:', JSON.stringify(analysisResult).substring(0, 300));
+      const analysis = this.analyzeCodeByLanguage(code, language, lines);
       
       return {
         result: {
-          response: JSON.stringify(analysisResult),
+          response: JSON.stringify({
+            bugs: analysis.bugs,
+            improvements: analysis.improvements,
+            testCoverage: analysis.testCoverage,
+            complexity: analysis.complexity,
+          }),
         },
       };
     }
@@ -397,6 +311,225 @@ For each suggestion, explain:
         response: '// Workers AI service not available. Basic analysis enabled.',
       },
     };
+  }
+
+  private analyzeCodeByLanguage(code: string, language: string, lines: string[]): any {
+    const bugs: any[] = [];
+    const improvements: any[] = [];
+    let complexity = 'low';
+    let testCoverage = 0.2;
+
+    if (!code || lines.length === 0) {
+      return { bugs: [{ line: 1, severity: 'info', message: 'Code sample too short for meaningful analysis', suggestion: 'Write more code (at least 3-4 lines of actual logic)' }], improvements: [], testCoverage: 0, complexity: 'low' };
+    }
+
+    if (language === 'python') {
+      this.analyzePython(code, lines, bugs, improvements);
+    } else if (language === 'cpp') {
+      this.analyzeCpp(code, lines, bugs, improvements);
+    } else if (language === 'java') {
+      this.analyzeJava(code, lines, bugs, improvements);
+    } else {
+      this.analyzeGeneric(code, lines, bugs, improvements);
+    }
+
+    // Calculate complexity based on lines of code
+    if (lines.length > 50) complexity = 'high';
+    else if (lines.length > 15) complexity = 'medium';
+    else complexity = 'low';
+
+    // Estimate test coverage
+    testCoverage = Math.min(0.9, 0.2 + (lines.length * 0.01));
+
+    // Add general improvements if none found
+    if (improvements.length === 0) {
+      improvements.push({ category: 'Best Practices', suggestions: ['Review error handling', 'Consider edge cases'] });
+    }
+
+    // If no bugs found, add positive feedback
+    if (bugs.length === 0) {
+      bugs.push({ line: 1, severity: 'info', message: 'No critical issues detected', suggestion: 'Code structure looks solid. Consider adding tests for edge cases.' });
+    }
+
+    return { bugs, improvements, testCoverage, complexity };
+  }
+
+  private analyzePython(code: string, lines: string[], bugs: any[], improvements: any[]): void {
+    lines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const trimmed = line.trim();
+      
+      if (!trimmed || trimmed.startsWith('#')) return;
+      
+      // Check for common Python issues
+      if (trimmed.match(/^\s*print\s*\(/)) {
+        improvements.push({ category: 'Debugging', suggestions: [`Consider using a logger instead of print() at line ${lineNum}`] });
+      }
+      
+      if (trimmed.includes(' == None') || trimmed.includes('== None')) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Use "is None" instead of "== None"',
+          suggestion: 'Replace "== None" with "is None" for proper None comparison in Python'
+        });
+      }
+      
+      if (trimmed.match(/except\s*:/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Bare except clause catches all exceptions',
+          suggestion: 'Specify exception type: "except ValueError:" or "except Exception:" for better error handling'
+        });
+      }
+      
+      if (trimmed.match(/^\s*import\s+\*/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Avoid wildcard imports',
+          suggestion: 'Use explicit imports: "from module import function" for clarity and namespace control'
+        });
+      }
+      
+      if (trimmed.match(/\s+$/)) {
+        improvements.push({
+          category: 'Style',
+          suggestions: [`Remove trailing whitespace at line ${lineNum}`]
+        });
+      }
+      
+      if (trimmed.match(/def\s+\w+\(/) && !code.substring(code.indexOf(trimmed)).match(/:\s*"""[\s\S]*?"""|:\s*'''[\s\S]*?'''/)) {
+        improvements.push({ category: 'Documentation', suggestions: [`Add docstring to function at line ${lineNum}`] });
+      }
+    });
+    
+    if (improvements.length === 0) {
+      improvements.push({ category: 'Best Practices', suggestions: ['Add type hints for clarity', 'Consider using context managers for resource handling'] });
+    }
+  }
+
+  private analyzeCpp(code: string, lines: string[], bugs: any[], improvements: any[]): void {
+    lines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const trimmed = line.trim();
+      
+      if (!trimmed || trimmed.startsWith('//')) return;
+      
+      // Check for common C++ issues
+      if (trimmed.includes('new ') && !code.includes('delete')) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Memory allocation without corresponding delete',
+          suggestion: 'Use smart pointers (std::unique_ptr, std::shared_ptr) to avoid manual memory management'
+        });
+      }
+      
+      if (trimmed.match(/using\s+namespace\s+std/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Avoid "using namespace std"',
+          suggestion: 'Use explicit namespace qualification (std::cout) or selective using declarations'
+        });
+      }
+      
+      if (trimmed.match(/char\s+\w+\[\d+\]/)) {
+        improvements.push({
+          category: 'Modern C++',
+          suggestions: [`Use std::string or std::array instead of C-style char arrays at line ${lineNum}`]
+        });
+      }
+      
+      if (trimmed.includes('#include <stdio.h>') || trimmed.includes('#include <stdlib.h>')) {
+        improvements.push({
+          category: 'C++ Best Practices',
+          suggestions: [`Use C++ standard library (<iostream>, <cstdlib>) instead of C headers at line ${lineNum}`]
+        });
+      }
+      
+      if (trimmed.match(/\w+\s+\*\w+/) && !trimmed.includes('const')) {
+        improvements.push({ category: 'Modern C++', suggestions: [`Consider using references instead of raw pointers at line ${lineNum}`] });
+      }
+    });
+    
+    if (improvements.length === 0) {
+      improvements.push({ category: 'Best Practices', suggestions: ['Use const references for function parameters', 'Consider using standard library algorithms'] });
+    }
+  }
+
+  private analyzeJava(code: string, lines: string[], bugs: any[], improvements: any[]): void {
+    lines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const trimmed = line.trim();
+      
+      if (!trimmed || trimmed.startsWith('//')) return;
+      
+      // Check for common Java issues
+      if (trimmed.match(/public\s+static\s+void\s+main/)) {
+        if (!code.includes('public class')) {
+          bugs.push({
+            line: lineNum,
+            severity: 'error',
+            message: 'main() method in non-public class',
+            suggestion: 'Declare the class as "public class ClassName" to run the program'
+          });
+        }
+      }
+      
+      if (trimmed.includes('.equals(') && trimmed.includes('==')) {
+        improvements.push({
+          category: 'Best Practices',
+          suggestions: [`Use .equals() for String comparison instead of == at line ${lineNum}`]
+        });
+      }
+      
+      if (trimmed.match(/catch\s*\(\s*Exception\s+\w+\s*\)/)) {
+        bugs.push({
+          line: lineNum,
+          severity: 'warning',
+          message: 'Catching broad Exception type',
+          suggestion: 'Catch specific exception types (IOException, NullPointerException, etc.)'
+        });
+      }
+      
+      if (trimmed.match(/new\s+\w+\(\)/) && !trimmed.includes('try')) {
+        improvements.push({
+          category: 'Resource Management',
+          suggestions: [`Consider try-with-resources for AutoCloseable objects at line ${lineNum}`]
+        });
+      }
+      
+      if (trimmed.match(/public\s+\w+\s+\w+\(/) && !code.substring(code.indexOf(trimmed)).match(/\/\*[\s\S]*?\*\/|\/\//)) {
+        improvements.push({ category: 'Documentation', suggestions: [`Add JavaDoc comment to public method at line ${lineNum}`] });
+      }
+    });
+    
+    if (improvements.length === 0) {
+      improvements.push({ category: 'Code Style', suggestions: ['Follow camelCase naming conventions', 'Use meaningful variable names'] });
+    }
+  }
+
+  private analyzeGeneric(code: string, lines: string[], bugs: any[], improvements: any[]): void {
+    const codeLength = code.trim().length;
+    const nonEmptyLines = lines.length;
+    const hasComments = code.includes('//') || code.includes('/*') || code.includes('#');
+    
+    if (!hasComments && codeLength > 50) {
+      improvements.push({
+        category: 'Documentation',
+        suggestions: ['Add comments to explain logic and complex expressions']
+      });
+    }
+    
+    if (nonEmptyLines > 2) {
+      improvements.push({
+        category: 'Best Practices',
+        suggestions: ['Use descriptive variable names', 'Consider error handling for edge cases']
+      });
+    }
   }
 
 
