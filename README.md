@@ -1,4 +1,4 @@
-# CodeMeld
+# VortexCode
 
 Real-time collaborative code editor with AI assistance, running on Cloudflare.
 

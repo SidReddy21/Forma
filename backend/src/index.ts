@@ -1,5 +1,5 @@
 /**
- * CodeMeld Backend - Main Worker
+ * VortexCode Backend - Main Worker
  * Handles API routing, auth, and AI orchestration
  */
 
@@ -57,7 +57,7 @@ export default {
         response = await handleWorkflows(request, env, ctx);
       } else if (pathname === '/' || pathname === '') {
         response = new Response(JSON.stringify({
-          name: 'CodeMeld API',
+          name: 'VortexCode API',
           version: '1.0.0',
           status: 'running',
           endpoints: [

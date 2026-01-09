@@ -14,7 +14,7 @@ export interface YjsHandle {
 
 export function initYjsMonaco(editor: any, sessionId: string, username: string, userId: string): YjsHandle {
   const doc = new Y.Doc();
-  const roomId = `codemeld-${sessionId}`;
+  const roomId = `vortex-code-${sessionId}`;
   
   console.log(`[Yjs] Initializing CRDT with sessionId: ${sessionId}, roomId: ${roomId}, userId: ${userId}, username: ${username}`);
   

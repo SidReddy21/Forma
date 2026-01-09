@@ -1,5 +1,5 @@
 /**
- * CodeMeld Shared Types
+ * VortexCode Shared Types
  */
 
 export interface EditorSession {

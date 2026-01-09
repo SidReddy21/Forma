@@ -1,4 +1,4 @@
-name = "codemeld"
+name = "vortex-code"
 main = "backend/src/index.ts"
 compatibility_date = "2024-12-18"
 
@@ -9,7 +9,7 @@ binding = "AI"
 # D1 Database
 [[d1_databases]]
 binding = "DB"
-database_name = "codemeld-db"
+database_name = "vortex-code-db"
 database_id = "ddb9cf83-4f5d-42cb-b094-5c2175911e09"
 
 # Durable Objects

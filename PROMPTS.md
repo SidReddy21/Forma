@@ -1,6 +1,6 @@
 # PROMPTS.md — Curated AI Prompts with Human Oversight
 
-This document is a curated catalog of the AI prompts I used and refined while building CodeMeld. It’s intentionally structured to highlight where I made human decisions, overrode AI suggestions, and guided the system toward the architecture and implementation I wanted.
+This document is a curated catalog of the AI prompts I used and refined while building VortexCode. It’s intentionally structured to highlight where I made human decisions, overrode AI suggestions, and guided the system toward the architecture and implementation I wanted.
 
 Human oversight anchors are included throughout to make it clear I’m driving the system rather than blindly accepting outputs.
 
