@@ -282,3 +282,121 @@ Entries demonstrating human oversight that steered outcomes:
 - Keep outputs minimal: short lists, clear steps; no noisy logs.
 - Call out human decisions explicitly: note overrides and reasons.
 
+
+---
+
+## 19. AI Analysis Enhancements (2026-01-09)
+
+### Prompt A3 — Language-Specific Code Analysis
+Implement detailed analyzers for Python, C++, and Java that detect real bugs, not generic placeholders:
+
+**Python Analyzer:**
+- Indentation errors: statement not indented under function/block → `severity: error`
+- Division by zero: detect unsafe divisions without `len()` checks → improvement suggestion
+- Inefficient patterns: manual loops suitable for `sum()` → code quality suggestion
+- Missing docstrings: functions without documentation → documentation improvement
+- `== None` vs `is None`: enforce proper None comparison
+- Bare except clauses: catch specific exceptions
+- Wildcard imports: explicit imports only
+
+**C++ Analyzer:**
+- Memory leaks: `new` without `delete` → `severity: error`, recommend smart pointers
+- `using namespace std`: namespace pollution → `severity: warning`
+- C-style arrays: recommend `std::string` or `std::array`
+- Raw pointers: suggest smart pointers or references
+- C headers: suggest C++ equivalents (`<iostream>` vs `<stdio.h>`)
+- Null pointer dereference: check before `->` operator
+
+**Java Analyzer:**
+- String comparison with `==`: detect and recommend `.equals()` → `severity: warning`
+- Broad exception catching: specific exception types only
+- Try-with-resources: AutoCloseable resource management
+- Null safety: method calls on potentially null objects
+- Naming conventions: camelCase enforcement, JavaDoc on public methods
+- main() placement in non-public class → `severity: error`
+
+Outcome: `backend/src/ai.ts` now features `analyzePython`, `analyzeCpp`, `analyzeJava` methods with real pattern detection.
+
+Human Decision: Remove generic "No critical issues detected" fallback when actual bugs are found; ensure analyzers report language-specific threats.
+
+### Prompt A4 — Remove Useless Metrics
+Eliminate test coverage and code complexity metrics from AI output:
+- Backend: Stop calculating and returning `testCoverage` and `complexity` fields
+- Frontend: Hardcode these values (testCoverage=0, complexity='medium') rather than displaying
+- UI: Remove complexity badge and test coverage percentage from `AIAssistant.tsx`
+
+Outcome: AI analysis focused on actionable bugs and improvements, not vanity metrics.
+
+Human Decision: User feedback stated both metrics were "horrible" and "useless"; removed entirely rather than improving.
+
+### Prompt A5 — Immediate Username Sync on Change
+Add real-time username propagation across all connected users:
+- Store trigger function in global `__yjsTriggerSync` to allow userStore access
+- When `setUsername()` is called, immediately post sync message to backend with new username
+- Backend updates collaborators map and broadcasts on next client poll
+- All clients pull fresh collaborator list including updated username
+
+Outcome: Username changes visible to all users within 2 seconds; no waiting for next periodic sync.
+
+Implementation files: `frontend/src/realtime/yjsProvider.ts` (triggerImmediateSync), `frontend/src/store/userStore.ts` (hook into setUsername).
+
+Human Decision: Avoid forcing client to wait until next 2-second sync cycle; use on-demand sync for user-facing metadata changes.
+
+---
+
+## 20. Rebranding: CodeMeld → VortexCode (2026-01-09)
+
+### Prompt R1 — Complete Rebranding
+Rebrand the project from "CodeMeld" to "VortexCode" across all surfaces:
+
+**Backend Changes:**
+- `wrangler.toml`: worker name `codemeld` → `vortex-code`
+- Database name: `codemeld-db` → `vortex-code-db`
+- Code comments: "CodeMeld Backend" → "VortexCode Backend"
+- API response names: update metadata references
+
+**Frontend Changes:**
+- `package.json`: `codemeld-frontend` → `vortex-code-frontend`
+- `index.html`: page title "CodeMeld" → "VortexCode"
+- `App.tsx`: landing page heading "CodeMeld" → "VortexCode"
+- `.env.production`: API URL `codemeld` → `vortex-code`
+- Yjs room prefix: `codemeld-${sessionId}` → `vortex-code-${sessionId}`
+
+**Deployment:**
+- New Cloudflare Pages project: `vortex-code-ui`
+- New Worker endpoint: `vortex-code.sidreddypleaseworktesting.workers.dev`
+- Database connection: `vortex-code-db`
+
+Outcome: Complete rebranding with new URLs and all references updated.
+
+Human Decision: Rebranding improves project identity; "VortexCode" suggests powerful collaborative flow. Worth redeploy cost.
+
+---
+
+## 21. Updated Decision Journal
+- "2026-01-09 — AI metrics removed (testCoverage, complexity). Reason: useless per user; Outcome: cleaner AI output focused on bugs/improvements."
+- "2026-01-09 — Language-specific analyzers implemented. Reason: generic analysis insufficient; Outcome: real Python indentation, C++ memory, Java string bugs detected."
+- "2026-01-09 — Immediate username sync added. Reason: user metadata should propagate instantly; Outcome: all collaborators see name changes within 2s."
+- "2026-01-09 — Rebranded to VortexCode. Reason: improve project identity; Outcome: new URLs, fresh branding, updated docs and frontend."
+
+---
+
+## 22. Future Enhancements for AI Analysis
+- Multi-line pattern detection: trace variable usage across function boundaries
+- Security analysis: SQL injection, XSS, path traversal patterns per language
+- Performance hotspots: O(n²) loops, excessive allocations (C++), large-scale pandas ops (Python)
+- Test coverage inference: estimate coverage based on function/class structure
+- Refactoring suggestions: extract methods, reduce cyclomatic complexity with before/after diffs
+- Framework-specific rules: Spring stereotypes (Java), async/await patterns (Python), const correctness (C++)
+
+---
+
+## 23. Closing Notes (Updated)
+VortexCode is now a mature, real-time collaborative editor with:
+- Server-authoritative realtime sync preventing duplication
+- Language-specific AI analysis catching actual bugs
+- Immediate username propagation for true collaboration
+- Polished brand and clean UI
+- Extensible architecture ready for WebSocket, multi-language AI, and advanced refactoring
+
+The decision journal and anti-patterns catalog ensure future development maintains this clarity and control.
