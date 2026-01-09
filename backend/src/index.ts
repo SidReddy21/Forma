@@ -9,10 +9,10 @@ import {
   AICompletion,
   RealtimeMessage,
   WorkflowPayload,
-} from '../types';
+} from './types';
 
 // Export Durable Objects
-export { SessionManager } from '../../durable-objects/SessionManager';
+export { SessionManager } from './SessionManager';
 
 export interface Env {
   AI: any; // Cloudflare Workers AI binding

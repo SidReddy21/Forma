@@ -3,7 +3,7 @@
  * Manages collaborative editing sessions with conflict-free synchronization
  */
 
-import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage, Operation } from '../types';
+import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage, Operation } from './types';
 
 export class SessionManager {
   private state: SessionStateShape;

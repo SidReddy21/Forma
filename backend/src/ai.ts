@@ -3,7 +3,7 @@
  * Handles streaming completions, analysis, and code generation
  */
 
-import { AICompletion, CodeAnalysisReport } from '../types';
+import { AICompletion, CodeAnalysisReport } from './types';
 
 export interface LlamaRequest {
   prompt: string;

@@ -3,7 +3,7 @@
  * Handles WebSocket connections via Cloudflare Realtime API
  */
 
-import { RealtimeMessage, Collaborator, CodeChange } from '../types';
+import { RealtimeMessage, Collaborator, CodeChange } from './types';
 
 export class RealtimeManager {
   private sessionId: string;

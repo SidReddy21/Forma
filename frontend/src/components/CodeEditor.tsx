@@ -77,5 +77,4 @@ export function CodeEditor() {
         colorDecorators: false,
       }}
     />
-  );
-}
+  );}

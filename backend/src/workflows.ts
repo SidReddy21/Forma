@@ -3,7 +3,7 @@
  * Runs periodically to analyze code, generate tests, and provide recommendations
  */
 
-import { WorkflowPayload, WorkflowResult, CodeAnalysisReport } from '../types';
+import { WorkflowPayload, WorkflowResult, CodeAnalysisReport } from './types';
 
 export async function handleWorkflowRequest(payload: WorkflowPayload): Promise<WorkflowResult> {
   const { sessionId, code, language, userId } = payload;
