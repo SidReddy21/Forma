@@ -1,0 +1,490 @@
+/**
+ * SessionManager Durable Object
+ * Manages collaborative editing sessions with conflict-free synchronization
+ */
+
+import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage, Operation } from './types';
+
+export class SessionManager {
+  private state: SessionStateShape;
+  private env: any;
+  private storage: any;
+  private pendingUpdates: any[] = [];
+
+  constructor(state: any, env: any) {
+    // Cloudflare Durable Objects provide DurableObjectState with .id and .storage
+    this.storage = state?.storage;
+    this.env = env;
+    this.state = {
+      sessionId: state?.id?.toString?.() || '',
+      collaborators: new Map(),
+      changeHistory: [],
+      currentContent: '',
+      locks: new Map(),
+      version: 0,
+    };
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    try {
+      // Load persisted state
+      await this.loadState();
+
+      if (request.method === 'POST') {
+        if (path === '/join') {
+          return await this.handleJoin(request);
+        } else if (path === '/edit') {
+          return await this.handleEdit(request);
+        } else if (path === '/cursor') {
+          return await this.handleCursorMove(request);
+        } else if (path === '/leave') {
+          return await this.handleLeave(request);
+        } else if (path === '/broadcast') {
+          return await this.handleBroadcast(request);
+        } else {
+          return new Response(JSON.stringify({ error: 'Not Found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      if (request.method === 'GET') {
+        if (path === '/state') {
+          return this.getSessionState();
+        } else if (path === '/history') {
+          return this.getChangeHistory(request);
+        } else if (path === '/sync') {
+          return this.handleSync(request);
+        } else {
+          return new Response(JSON.stringify({ error: 'Not Found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('SessionManager error:', error);
+      return new Response(
+        JSON.stringify({
+          error: 'Internal server error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  private async handleJoin(request: Request): Promise<Response> {
+    const body = (await request.json()) as any;
+    const { userId, username, color } = body;
+
+    const collaborator: Collaborator = {
+      id: userId,
+      username,
+      color,
+      cursor: { line: 0, column: 0 },
+      isActive: true,
+      lastSeen: Date.now(),
+    };
+
+    this.state.collaborators.set(userId, collaborator);
+    await this.persistState();
+
+    // Broadcast to other collaborators via Realtime
+    await this.broadcastPresence('user_joined', { collaborator });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        content: this.state.currentContent,
+        collaborators: Array.from(this.state.collaborators.values()),
+        sessionId: this.state.sessionId,
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  private async handleEdit(request: Request): Promise<Response> {
+    const change = (await request.json()) as CodeChange;
+
+    // Conflict detection: check for overlapping locks
+    if (this.isLockedRange(change.position)) {
+      return new Response(
+        JSON.stringify({ error: 'Range is locked by another user' }),
+        { status: 409 }
+      );
+    }
+
+    // Apply change using Operational Transformation principles
+    this.applyChange(change);
+    this.state.changeHistory.push(change);
+
+    await this.persistState();
+
+    // Broadcast to other collaborators
+    await this.broadcastEdit(change);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        changeId: change.id,
+        content: this.state.currentContent,
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  private async handleCursorMove(request: Request): Promise<Response> {
+    const body = (await request.json()) as any;
+    const { userId, line, column } = body;
+
+    const collaborator = this.state.collaborators.get(userId);
+    if (collaborator) {
+      collaborator.cursor = { line, column };
+      collaborator.lastSeen = Date.now();
+      await this.persistState();
+
+      // Broadcast cursor position
+      await this.broadcastPresence('cursor_move', {
+        userId,
+        cursor: { line, column },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  private async handleLeave(request: Request): Promise<Response> {
+    const body = (await request.json()) as any;
+    const { userId } = body;
+
+    this.state.collaborators.delete(userId);
+    this.state.locks.delete(userId);
+    await this.persistState();
+
+    await this.broadcastPresence('user_left', { userId });
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  private async handleBroadcast(request: Request): Promise<Response> {
+    // Handle incoming operation/edit/join message
+    const message = (await request.json()) as any;
+
+    // If join with username updates, refresh collaborator entry
+    if (message.type === 'join' && message.userId) {
+      const existing = this.state.collaborators.get(message.userId);
+      if (existing) {
+        existing.username = message.username || existing.username;
+        existing.lastSeen = Date.now();
+        existing.isActive = true;
+        this.state.collaborators.set(message.userId, existing);
+        await this.persistState();
+      }
+    }
+
+    // Handle Yjs sync messages - the primary sync mechanism
+    if (message.type === 'sync' && message.yState) {
+      try {
+        console.log(`[SessionManager] Received Yjs sync from ${message.username} (userId: ${message.userId})`);
+        
+        // Update or create collaborator info
+        let collaborator = this.state.collaborators.get(message.userId);
+        if (!collaborator) {
+          collaborator = {
+            id: message.userId,
+            username: message.username || 'Unknown',
+            color: '#3b82f6',
+            cursor: { line: 0, column: 0 },
+            isActive: true,
+            lastSeen: Date.now(),
+          };
+          this.state.collaborators.set(message.userId, collaborator);
+          console.log(`[SessionManager] New collaborator joined: ${message.username}`);
+        } else {
+          collaborator.lastSeen = Date.now();
+          collaborator.isActive = true;
+          collaborator.username = message.username || collaborator.username;
+        }
+        
+        // NOTE: Do NOT update currentContent from raw content field
+        // Yjs updates handle conflict resolution and merging properly
+        // Only the Yjs state matters for content sync
+        
+        // Store Yjs update for other clients to pull
+        const yStateUpdate = {
+          yState: message.yState,
+          userId: message.userId,
+          username: message.username,
+          awarenessState: message.awarenessState,
+          timestamp: message.timestamp || Date.now(),
+        };
+        
+        this.pendingUpdates.push({
+          type: 'yjs_sync',
+          ...yStateUpdate,
+        });
+        
+        if (this.pendingUpdates.length > 200) this.pendingUpdates.shift();
+        
+        await this.persistState();
+        
+        return new Response(
+          JSON.stringify({ success: true, synced: true, timestamp: Date.now() }),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      } catch (err) {
+        console.error('Error handling Yjs sync:', err);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to sync Yjs state' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Persist if it's an operation (legacy support)
+    if (message.type === 'operation' && message.operation) {
+      const op: Operation = message.operation as Operation;
+      const baseVersion = typeof op.baseVersion === 'number' ? op.baseVersion : undefined;
+      if (baseVersion !== undefined && baseVersion !== this.state.version) {
+        // Version conflict: return 409 with latest content and version
+        return new Response(
+          JSON.stringify({
+            conflict: true,
+            version: this.state.version,
+            content: this.state.currentContent,
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Apply operation to current content
+      this.state.currentContent = this.applyOperationToContent(this.state.currentContent, op);
+      this.state.version = (this.state.version || 0) + 1;
+
+      this.state.changeHistory.push({
+        id: crypto.randomUUID(),
+        userId: message.userId,
+        sessionId: this.state.sessionId,
+        type: op.type,
+        position: op.position,
+        content: op.content || '',
+        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+      });
+
+      await this.persistState();
+
+      // Add to pending updates queue for polling clients with version
+      this.pendingUpdates.push({
+        type: 'operation',
+        userId: message.userId,
+        operation: op,
+        version: this.state.version,
+        timestamp: Date.now(),
+      });
+      if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
+
+      return new Response(
+        JSON.stringify({ queued: true, version: this.state.version }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Default: enqueue message for clients (presence/cursor)
+    this.pendingUpdates.push({
+      ...message,
+      timestamp: Date.now(),
+    });
+    if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
+
+    return new Response(JSON.stringify({ queued: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  private handleSync(request: Request): Response {
+    // Polling endpoint - return all updates since lastSync
+    const url = new URL(request.url);
+    const lastSync = parseInt(url.searchParams.get('lastSync') || '0');
+    const userId = url.searchParams.get('userId');
+
+    // Filter updates since last sync
+    const allUpdates = this.pendingUpdates.filter((u) => u.timestamp > lastSync);
+    
+    // Separate Yjs updates from other updates
+    const yjsUpdates = allUpdates.filter(u => u.type === 'yjs_sync');
+    const otherUpdates = allUpdates.filter(u => u.type !== 'yjs_sync');
+
+    console.log(`[SessionManager] Sync: found ${yjsUpdates.length} Yjs updates, ${otherUpdates.length} other updates for userId: ${userId}`);
+
+    // Get all collaborators including the requesting user
+    const allCollaborators = Array.from(this.state.collaborators.values()).map((c) => ({
+      id: c.id,
+      username: c.username,
+      color: c.color,
+      cursor: c.cursor,
+      isActive: c.isActive,
+    }));
+    
+    console.log(`[SessionManager] Returning ${allCollaborators.length} total collaborators (all users in session)`);
+
+    return new Response(
+      JSON.stringify({
+        content: this.state.currentContent,
+        version: this.state.version || 0,
+        collaborators: allCollaborators,
+        updates: yjsUpdates,
+        otherUpdates,
+        timestamp: Date.now(),
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  private getSessionState(): Response {
+    return new Response(
+      JSON.stringify({
+        sessionId: this.state.sessionId,
+        content: this.state.currentContent,
+        collaborators: Array.from(this.state.collaborators.values()),
+        changeCount: this.state.changeHistory.length,
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  private getChangeHistory(request: Request): Response {
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const offset = parseInt(url.searchParams.get('offset') || '0');
+
+    const history = this.state.changeHistory.slice(
+      Math.max(0, this.state.changeHistory.length - limit - offset),
+      this.state.changeHistory.length - offset
+    );
+
+    return new Response(JSON.stringify({ changes: history, total: this.state.changeHistory.length }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  private applyChange(change: CodeChange): void {
+    const content = this.state.currentContent;
+    // Convert line/column to absolute position
+    const lines = content.split('\n');
+    let absolutePos = 0;
+
+    for (let i = 0; i < change.position.line; i++) {
+      absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
+    }
+    absolutePos += change.position.column;
+
+    if (change.type === 'insert') {
+      this.state.currentContent =
+        content.slice(0, absolutePos) + change.content + content.slice(absolutePos);
+    } else if (change.type === 'delete') {
+      this.state.currentContent =
+        content.slice(0, absolutePos) + content.slice(absolutePos + change.content.length);
+    } else if (change.type === 'replace') {
+      const endPos = absolutePos + change.content.length;
+      this.state.currentContent =
+        content.slice(0, absolutePos) + change.content + content.slice(endPos);
+    }
+  }
+
+  private isLockedRange(position: { line: number; column: number }): boolean {
+    const now = Date.now();
+    const lockTimeout = 5000; // 5 second lock timeout
+
+    for (const [userId, lockTime] of this.state.locks.entries()) {
+      if (now - lockTime < lockTimeout) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private applyOperationToContent(content: string, operation: any): string {
+    const { type, position, content: opContent, length, oldLength } = operation;
+    
+    // Convert line/column to absolute position
+    const lines = content.split('\n');
+    let absolutePos = 0;
+    for (let i = 0; i < position.line; i++) {
+      absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
+    }
+    absolutePos += position.column;
+
+    if (type === 'insert') {
+      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos);
+    } else if (type === 'delete') {
+      return content.slice(0, absolutePos) + content.slice(absolutePos + length);
+    } else if (type === 'replace') {
+      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos + oldLength);
+    }
+    return content;
+  }
+
+  private async broadcastEdit(change: CodeChange): Promise<void> {
+    // In production, this would broadcast via Realtime API
+    const message: RealtimeMessage = {
+      type: 'edit',
+      sessionId: this.state.sessionId,
+      userId: change.userId,
+      data: change,
+      timestamp: Date.now(),
+    };
+
+    console.log('Broadcasting edit:', message);
+  }
+
+  private async broadcastPresence(eventType: string, data: any): Promise<void> {
+    const message: RealtimeMessage = {
+      type: 'presence',
+      sessionId: this.state.sessionId,
+      userId: 'system',
+      data: { eventType, ...data },
+      timestamp: Date.now(),
+    };
+
+    console.log('Broadcasting presence:', message);
+  }
+
+  private async loadState(): Promise<void> {
+    const stored = await this.storage.get('sessionState');
+    if (stored) {
+      const parsed = JSON.parse(stored as string);
+      this.state = {
+        ...parsed,
+        collaborators: new Map(parsed.collaborators),
+        locks: new Map(parsed.locks),
+        version: typeof parsed.version === 'number' ? parsed.version : 0,
+      };
+    }
+  }
+
+  private async persistState(): Promise<void> {
+    await this.storage.put(
+      'sessionState',
+      JSON.stringify({
+        ...this.state,
+        collaborators: Array.from(this.state.collaborators.entries()),
+        locks: Array.from(this.state.locks.entries()),
+        version: this.state.version || 0,
+      })
+    );
+  }
+}
