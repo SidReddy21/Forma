@@ -11,9 +11,9 @@ const api = axios.create({
 
 // Add request interceptor for auth
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('session-token') || process.env.REACT_APP_SESSION_TOKEN;
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    config.headers['x-session-token'] = token;
   }
   return config;
 });
@@ -24,7 +24,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Handle auth error
-      localStorage.removeItem('token');
+      localStorage.removeItem('session-token');
     }
     return Promise.reject(error);
   }

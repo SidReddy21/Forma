@@ -22,6 +22,41 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   REALTIME: Realtime;
+  SESSION_TOKEN?: string; // Auth token for API security
+}
+
+// Rate limiting map: IP -> { count, resetTime }
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 60 seconds
+const RATE_LIMIT_MAX = 100; // 100 requests per window
+
+// Check rate limit for IP
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const record = rateLimitMap.get(ip);
+
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+
+  if (record.count < RATE_LIMIT_MAX) {
+    record.count++;
+    return true;
+  }
+
+  return false;
+}
+
+// Verify auth token
+function isAuthorized(request: Request, env: Env): boolean {
+  // Skip auth for health check
+  const url = new URL(request.url);
+  if (url.pathname === '/') return true;
+
+  // Check session token from header
+  const token = request.headers.get('x-session-token');
+  return token === env.SESSION_TOKEN;
 }
 
 // Add CORS headers to response
@@ -29,7 +64,7 @@ function addCORSHeaders(response: Response): Response {
   const newResponse = new Response(response.body, response);
   newResponse.headers.set('Access-Control-Allow-Origin', '*');
   newResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  newResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  newResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-session-token');
   return newResponse;
 }
 
@@ -42,6 +77,23 @@ export default {
 
     const url = new URL(request.url);
     const pathname = url.pathname;
+
+    // Rate limiting (check before auth to fail fast)
+    const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+    if (!checkRateLimit(ip)) {
+      return addCORSHeaders(new Response(JSON.stringify({ error: 'Rate limit exceeded. Max 100 requests per minute.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+
+    // Auth check (skip for health endpoint)
+    if (pathname !== '/' && env.SESSION_TOKEN && !isAuthorized(request, env)) {
+      return addCORSHeaders(new Response(JSON.stringify({ error: 'Unauthorized. Provide x-session-token header.' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    }
 
     try {
       // Route to appropriate handler

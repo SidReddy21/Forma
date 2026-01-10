@@ -75,6 +75,48 @@ This starts Vite dev server at `http://localhost:5173`.
 
 ---
 
+## Security
+
+VortexCode includes built-in authentication and rate limiting to protect your API from unauthorized access and abuse.
+
+### Authentication Token
+
+All API requests (except root) require a session token in the `x-session-token` header:
+
+**Generate a token (strong random string):**
+```bash
+openssl rand -base64 32
+# Example output: Kj9mX2pL+4Qw5Zn8RvT3Yx0sAb1cD6eF7gHi9jK
+```
+
+**Set the token as a Cloudflare secret:**
+```bash
+npx wrangler secret put SESSION_TOKEN
+# Paste your token when prompted
+```
+
+**Frontend automatically includes the token** (handled in `frontend/src/services/api.ts`). If you deploy your own fork, ensure the frontend API client is configured to send the token in all requests.
+
+### Rate Limiting
+
+API endpoints enforce a **100 requests per minute per IP** limit. Exceeding this returns a `429 Too Many Requests` response.
+
+### Environment Variables
+
+`wrangler.toml` does NOT store secrets. Instead, use the Cloudflare CLI:
+
+```bash
+# Set for production
+npx wrangler secret put SESSION_TOKEN --env production
+
+# Verify secret is set (list secret names)
+npx wrangler secret list
+```
+
+**Never commit `wrangler.toml.local` or any `.secret` files.**
+
+---
+
 ## Cloud Deployment (Cloudflare)
 
 ### Prerequisites

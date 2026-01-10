@@ -21,6 +21,14 @@ class_name = "SessionManager"
 tag = "v1"
 new_sqlite_classes = ["SessionManager"]
 
+# Environment variables
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
 # Trigger for Workflows - cron format
 [triggers]
 crons = ["0 */6 * * *"]
+
+# NOTE: Set SESSION_TOKEN secret via CLI:
+# npx wrangler secret put SESSION_TOKEN
+# Then paste a strong random string (e.g., generated with: openssl rand -base64 32)
