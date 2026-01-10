@@ -1,0 +1,35 @@
+name = "vortex-code"
+main = "backend/src/index.ts"
+compatibility_date = "2024-12-18"
+
+# AI Binding for Cloudflare Workers AI
+[ai]
+binding = "AI"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "vortex-code-db"
+database_id = "${D1_DATABASE_ID}"
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "SessionManager"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionManager"]
+
+# Environment variables
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+# Trigger for Workflows - cron format
+[triggers]
+crons = ["0 */6 * * *"]
+
+# NOTE: Set secrets via CLI:
+# npx wrangler secret put SESSION_TOKEN
+# npx wrangler secret put D1_DATABASE_ID
+# Then paste strong random strings (e.g., generated with: openssl rand -base64 32)
