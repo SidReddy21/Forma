@@ -59,6 +59,9 @@ export interface AICompletion {
 export interface CodeAnalysisReport {
   sessionId: string;
   timestamp: number;
+  inferredGoal?: string;
+  fulfillsGoal?: boolean;
+  goalAnalysis?: string;
   bugs: {
     line: number;
     severity: 'critical' | 'warning' | 'info' | 'error';

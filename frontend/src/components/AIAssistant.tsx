@@ -101,6 +101,30 @@ export function AIAssistant() {
           animate={{ opacity: 1 }}
           className="bg-slate-700 p-3 rounded text-sm space-y-3 max-h-64 overflow-y-auto"
         >
+          {/* Goal Analysis Section */}
+          {(analysis as any).inferredGoal && (
+            <div className="bg-blue-900/30 border border-blue-500/50 p-3 rounded space-y-2">
+              <p className="text-blue-300 font-semibold flex items-center gap-2">
+                🎯 Code Goal Analysis
+              </p>
+              <div className="text-xs space-y-2">
+                <div>
+                  <span className="text-slate-400">Detected Goal:</span>
+                  <p className="text-slate-200 mt-1">{(analysis as any).inferredGoal}</p>
+                </div>
+                {(analysis as any).goalAnalysis && (
+                  <div>
+                    <span className="text-slate-400">Fulfillment:</span>
+                    <p className={`mt-1 ${(analysis as any).fulfillsGoal ? 'text-green-300' : 'text-red-300'}`}>
+                      {(analysis as any).fulfillsGoal ? '✓ Goal Achieved' : '✗ Goal Not Met'}
+                    </p>
+                    <p className="text-slate-300 mt-1">{(analysis as any).goalAnalysis}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
             <p className="text-yellow-400 font-semibold mb-2">Bugs Found: {analysis.bugs?.length || 0}</p>
             {(analysis.bugs || []).map((bug, idx) => (

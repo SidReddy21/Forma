@@ -809,23 +809,35 @@ Provide the most likely completion. Only return code, no explanation.`;
    * Build prompt for analysis
    */
   private buildAnalysisPrompt(code: string, language: string): string {
-    return `Analyze this ${language} code for bugs, security issues, and improvements:
+    return `Analyze this ${language} code comprehensively:
 
 \`\`\`${language}
 ${code}
 \`\`\`
 
+CRITICAL: Perform a goal-oriented analysis:
+
+1. **INFER THE GOAL**: What is this code trying to achieve? What problem is it solving?
+2. **GOAL FULFILLMENT**: Does the code actually achieve its intended goal? Are there logical flaws preventing it from working correctly?
+3. **CORRECTNESS**: Will this code work as the developer intended? Are there bugs that break the core functionality?
+4. **IMPROVEMENTS**: After ensuring correctness, what could be better?
+
 Return JSON in this format:
 {
+  "inferredGoal": "Brief description of what the code is trying to do",
+  "fulfillsGoal": true or false,
+  "goalAnalysis": "Explanation of whether/how the code achieves its goal",
   "bugs": [
-    {"line": 5, "severity": "warning", "message": "...", "suggestion": "..."}
+    {"line": 5, "severity": "error|warning|info", "message": "...", "suggestion": "..."}
   ],
   "improvements": [
-    {"category": "Performance", "suggestions": ["...", "..."]}
+    {"category": "Performance|Style|Best Practices", "suggestions": ["...", "..."]}
   ],
   "testCoverage": 0.65,
-  "complexity": "medium"
-}`;
+  "complexity": "low|medium|high"
+}
+
+Focus on FUNCTIONAL CORRECTNESS first - does it do what it's supposed to do?`;
   }
 
   /**
@@ -880,6 +892,9 @@ Return JSON in this format:
         return {
           sessionId: 'current-session',
           timestamp: Date.now(),
+          inferredGoal: parsed.inferredGoal,
+          fulfillsGoal: parsed.fulfillsGoal,
+          goalAnalysis: parsed.goalAnalysis,
           bugs,
           improvements,
           testCoverage: parsed.testCoverage || 0.5,
@@ -926,6 +941,9 @@ Return JSON in this format:
       return {
         sessionId: 'current-session',
         timestamp: Date.now(),
+        inferredGoal: parsed.inferredGoal,
+        fulfillsGoal: parsed.fulfillsGoal,
+        goalAnalysis: parsed.goalAnalysis,
         bugs,
         improvements,
         testCoverage: parsed.testCoverage || 0.5,
