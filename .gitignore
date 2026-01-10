@@ -10,6 +10,24 @@ node_modules/
 # Production
 /build
 /dist
+/frontend/dist
+/backend/dist
+
+# Caches
+.eslintcache
+.turbo
+.next
+.cache
+.parcel-cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+.vite
+vite-temp/
+*.egg-info/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Misc
 .DS_Store
@@ -27,6 +45,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+debug.log
 
 # Editor directories and files
 .vscode/*
@@ -39,6 +58,9 @@ lerna-debug.log*
 .settings/
 *.sublime-workspace
 *.sublime-project
+*.swp
+*.swo
+*~
 
 # Cloudflare & Wrangler
 .wrangler/
@@ -47,6 +69,8 @@ lerna-debug.log*
 # OS
 Thumbs.db
 ehthumbs.db
+.Spotlight-V100
+.Trashes
 
 # Lock files (optional - comment out if you want to commit)
 package-lock.json
