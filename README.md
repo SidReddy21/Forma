@@ -31,15 +31,22 @@ npm install
 
 ### 2. Configure Environment Variables
 
-**Frontend** (`.env.production` — already configured for production):
+**Frontend Local Dev** (`.env.local`):
+```env
+VITE_API_URL=http://localhost:8787
+VITE_SESSION_TOKEN=5MBWsXmm9qd4HNvq9lWLdrscEOvA065/3ViCT95HlHM=
+```
+Copy `frontend/.env.local.example` to `frontend/.env.local` and fill in your SESSION_TOKEN (same as the one you set via `wrangler secret put`).
+
+**Frontend Production** (`.env.production` — pre-configured):
 ```env
 VITE_API_URL=https://vortex-code.sidreddy21.workers.dev
+VITE_SESSION_TOKEN=5MBWsXmm9qd4HNvq9lWLdrscEOvA065/3ViCT95HlHM=
 ```
-
-For local dev, the frontend will proxy to `localhost:8787` (Wrangler dev server). No additional config needed.
 
 **Backend** (no `.env` file needed; Cloudflare bindings auto-injected):
 - Ensure `wrangler.toml` has bindings for `AI`, `DB`, and `SESSIONS` (Durable Objects).
+- SESSION_TOKEN secret is stored in Cloudflare (not in files).
 
 ### 3. Initialize D1 Database
 
