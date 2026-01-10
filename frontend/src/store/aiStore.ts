@@ -46,6 +46,9 @@ export const useAIStore = create<AIStore>((set) => ({
       const analysis: any = {
         sessionId: response.data.sessionId || sessionId,
         timestamp: response.data.timestamp || Date.now(),
+        inferredGoal: response.data.inferredGoal,
+        fulfillsGoal: response.data.fulfillsGoal,
+        goalAnalysis: response.data.goalAnalysis,
         bugs: (response.data.bugs || []).map((bug: any) => ({
           line: bug.line || 1,
           severity: bug.severity || 'warning',
@@ -55,8 +58,8 @@ export const useAIStore = create<AIStore>((set) => ({
         improvements: (response.data.improvements || []).map((imp: any) => 
           typeof imp === 'string' ? { category: 'General', suggestions: [imp] } : imp
         ),
-        testCoverage: 0,
-        complexity: 'medium',
+        testCoverage: response.data.testCoverage || 0,
+        complexity: response.data.complexity || 'medium',
       };
       if (response.data.execution) {
         analysis.execution = response.data.execution;
