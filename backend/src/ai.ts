@@ -115,6 +115,8 @@ export class CodeAIService {
       if (hasAI) {
         try {
           console.log('[AI] Calling Llama with prompt length:', prompt.length);
+          console.log('[AI] Code length:', code.length, 'Language:', language);
+          
           const response = await this.queryLlama({
             prompt,
             model: this.model,
@@ -122,11 +124,18 @@ export class CodeAIService {
             temperature: 0.3,
             topP: 0.95,
           });
+          
           console.log('[AI] Received response, parsing...');
+          console.log('[AI] Response type:', typeof response, 'Keys:', Object.keys(response || {}));
+          
           parsed = this.parseAnalysisResponse(response);
           console.log('[AI] Parsed successfully. Has goal?', !!parsed.inferredGoal);
+          console.log('[AI] Full parsed result:', JSON.stringify(parsed).substring(0, 500));
         } catch (aiError) {
-          console.error('[AI] AI query failed:', aiError);
+          console.error('[AI] AI query failed - Type:', typeof aiError);
+          console.error('[AI] Error message:', aiError instanceof Error ? aiError.message : String(aiError));
+          console.error('[AI] Error stack:', aiError instanceof Error ? aiError.stack : 'No stack');
+          console.error('[AI] Full error:', JSON.stringify(aiError, null, 2));
         }
       } else {
         console.warn('[AI] AI binding not available - check wrangler.toml');
@@ -875,11 +884,16 @@ Focus on FUNCTIONAL CORRECTNESS first - does it do what it's supposed to do?`;
    */
   private parseAnalysisResponse(response: LlamaResponse): CodeAnalysisReport {
     try {
-      const content = response.result.response;
-      console.log('Parsing response, type:', typeof content, 'length:', content?.length);
+      console.log('[AI] parseAnalysisResponse called with response:', typeof response);
+      console.log('[AI] response keys:', Object.keys(response || {}));
+      console.log('[AI] response.result:', typeof response?.result);
+      
+      const content = response?.result?.response;
+      console.log('[AI] Extracted content type:', typeof content, 'length:', content?.length);
       
       // Handle null/undefined response
       if (!content) {
+        console.error('[AI] Content is null/undefined. Full response:', JSON.stringify(response).substring(0, 500));
         throw new Error('Empty response content');
       }
       
@@ -917,23 +931,34 @@ Focus on FUNCTIONAL CORRECTNESS first - does it do what it's supposed to do?`;
       
       // Content should be a string - try to parse it
       if (typeof content !== 'string') {
-        console.log('Content is not string, converting:', typeof content);
+        console.log('[AI] Content is not string, converting:', typeof content);
         throw new Error('Response is not a string: ' + typeof content);
       }
       
-      console.log('Trying to parse JSON from string');
+      console.log('[AI] Trying to parse JSON from string, first 200 chars:', content.substring(0, 200));
+      console.log('[AI] Last 200 chars:', content.substring(Math.max(0, content.length - 200)));
       
       // Try to extract JSON from the response (it might be wrapped in markdown or text)
       let jsonStr = content;
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonStr = jsonMatch[0];
-        console.log('Extracted JSON from response');
+      
+      // Look for JSON wrapped in code blocks
+      const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      if (codeBlockMatch) {
+        jsonStr = codeBlockMatch[1];
+        console.log('[AI] Extracted JSON from code block');
+      } else {
+        // Look for the LAST complete JSON object (AI might add extra text after)
+        const allMatches = content.match(/\{(?:[^{}]|(?:\{[^{}]*\}))*\}/g);
+        if (allMatches && allMatches.length > 0) {
+          // Try the last match first (AI often puts JSON at the end)
+          jsonStr = allMatches[allMatches.length - 1];
+          console.log('[AI] Using last JSON object from response');
+        }
       }
 
-      console.log('Attempting to parse:', jsonStr.substring(0, 100));
+      console.log('[AI] Attempting to parse, length:', jsonStr.length);
       const parsed = JSON.parse(jsonStr);
-      console.log('Successfully parsed JSON');
+      console.log('[AI] Successfully parsed JSON');
       
       // Normalize the response structure
       const bugs = (parsed.bugs || []).map((bug: any) => ({
