@@ -11,7 +11,12 @@ const api = axios.create({
 
 // Add request interceptor for auth
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('session-token') || process.env.REACT_APP_SESSION_TOKEN;
+  // Try localStorage first, then env var, then give up
+  const token = 
+    localStorage.getItem('session-token') || 
+    import.meta.env.VITE_SESSION_TOKEN ||
+    process.env.REACT_APP_SESSION_TOKEN;
+  
   if (token) {
     config.headers['x-session-token'] = token;
   }
