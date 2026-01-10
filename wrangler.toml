@@ -10,7 +10,7 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "vortex-code-db"
-database_id = "ddb9cf83-4f5d-42cb-b094-5c2175911e09"
+database_id = "${D1_DATABASE_ID}"
 
 # Durable Objects
 [[durable_objects.bindings]]
@@ -29,6 +29,7 @@ vars = { ENVIRONMENT = "production" }
 [triggers]
 crons = ["0 */6 * * *"]
 
-# NOTE: Set SESSION_TOKEN secret via CLI:
+# NOTE: Set secrets via CLI:
 # npx wrangler secret put SESSION_TOKEN
-# Then paste a strong random string (e.g., generated with: openssl rand -base64 32)
+# npx wrangler secret put D1_DATABASE_ID
+# Then paste strong random strings (e.g., generated with: openssl rand -base64 32)
