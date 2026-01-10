@@ -111,8 +111,10 @@ export class CodeAIService {
       const hasAI = !!this.env.AI;
       let parsed: CodeAnalysisReport | null = null;
 
+      console.log('[AI] AI binding available:', hasAI);
       if (hasAI) {
         try {
+          console.log('[AI] Calling Llama with prompt length:', prompt.length);
           const response = await this.queryLlama({
             prompt,
             model: this.model,
@@ -120,19 +122,30 @@ export class CodeAIService {
             temperature: 0.3,
             topP: 0.95,
           });
+          console.log('[AI] Received response, parsing...');
           parsed = this.parseAnalysisResponse(response);
+          console.log('[AI] Parsed successfully. Has goal?', !!parsed.inferredGoal);
         } catch (aiError) {
-          console.error('AI query failed:', aiError);
+          console.error('[AI] AI query failed:', aiError);
         }
+      } else {
+        console.warn('[AI] AI binding not available - check wrangler.toml');
       }
 
       if (!parsed) {
         // No AI available or parsing failed: return a minimal report with execution context
+        console.log('[AI] Using fallback analysis (no AI response)');
         parsed = {
           sessionId: 'current-session',
           timestamp: Date.now(),
+          inferredGoal: 'Unable to analyze - AI service unavailable',
+          fulfillsGoal: undefined,
+          goalAnalysis: 'AI analysis requires Workers AI binding. Check deployment configuration.',
           bugs: executionBug ? [executionBug] : [],
-          improvements: [],
+          improvements: [{
+            category: 'System',
+            suggestions: ['AI analysis is currently unavailable. Code executed successfully.']
+          }],
           testCoverage: 0,
           complexity: 'medium',
         };
