@@ -1,18 +1,19 @@
-name = "vortex-code"
+name = "forma-workspace"
 main = "backend/src/index.ts"
-compatibility_date = "2024-12-18"
+compatibility_date = "2026-09-01"
 
-# AI Binding for Cloudflare Workers AI
-[ai]
-binding = "AI"
+[assets]
+directory = "./frontend/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/ws/*"]
 
-# D1 Database
 [[d1_databases]]
 binding = "DB"
-database_name = "vortex-code-db"
-database_id = "${D1_DATABASE_ID}"
+database_name = "forma-db"
+# Replace with the ID from wrangler d1 create forma-db before deploying.
+database_id = "00000000-0000-0000-0000-000000000000"
 
-# Durable Objects
 [[durable_objects.bindings]]
 name = "SESSIONS"
 class_name = "SessionManager"
@@ -21,15 +22,23 @@ class_name = "SessionManager"
 tag = "v1"
 new_sqlite_classes = ["SessionManager"]
 
-# Environment variables
-[env.production]
-vars = { ENVIRONMENT = "production" }
+# Use `npm run dev:ai` after authenticating Wrangler to enable live inference.
+# The default local workspace keeps structural translation available offline.
+[env.ai]
+name = "forma-workspace-ai"
 
-# Trigger for Workflows - cron format
-[triggers]
-crons = ["0 */6 * * *"]
+[env.ai.vars]
+AGENT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
-# NOTE: Set secrets via CLI:
-# npx wrangler secret put SESSION_TOKEN
-# npx wrangler secret put D1_DATABASE_ID
-# Then paste strong random strings (e.g., generated with: openssl rand -base64 32)
+[env.ai.ai]
+binding = "AI"
+remote = true
+
+[[env.ai.d1_databases]]
+binding = "DB"
+database_name = "forma-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[env.ai.durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "SessionManager"

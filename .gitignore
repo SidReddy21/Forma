@@ -73,6 +73,13 @@ ehthumbs.db
 .Trashes
 
 # Lock files (optional - comment out if you want to commit)
-package-lock.json
+# Keep the npm lockfile for reproducible installs.
 yarn.lock
 pnpm-lock.yaml
+test-results/
+playwright-report/
+.local/
+
+# Local AI prompts
+PROMPTS.md
+prompts.md

@@ -1,490 +1,249 @@
-/**
- * SessionManager Durable Object
- * Manages collaborative editing sessions with conflict-free synchronization
- */
-
-import { DurableObjectState as SessionStateShape, Collaborator, CodeChange, RealtimeMessage, Operation } from './types';
+import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+import * as sync from 'y-protocols/sync';
+import {
+  Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate,
+  removeAwarenessStates,
+} from 'y-protocols/awareness';
+import {
+  SYNC,
+  AWARENESS,
+  SAVED,
+  syncStep,
+  documentUpdate,
+  presenceUpdate,
+  awarenessClientIds,
+  AGENT_COMMAND,
+  AGENT_STATE,
+  jsonMessage,
+} from '../../shared/protocol';
+import { seedDocument } from '../../shared/seed';
+import type { Env } from './index';
+import { WorkspaceAgent } from './WorkspaceAgent';
+import { createGenerator } from './AgentModel';
+import { codeOf, replaceCode, INITIALIZE_ORIGIN, type AgentSettings } from '../../shared/workspace';
+import { canvasToCode } from '../../shared/translation';
+import { metadataOf, nodesOf } from '../../shared/canvas';
 
 export class SessionManager {
-  private state: SessionStateShape;
-  private env: any;
-  private storage: any;
-  private pendingUpdates: any[] = [];
+  private doc = new Y.Doc();
+  private awareness = new Awareness(this.doc);
+  private sockets = new Map<WebSocket, Set<number>>();
+  private ready: Promise<void>;
+  private queue: Promise<void> = Promise.resolve();
+  private room = '';
+  private revision = 0;
+  private changed = false;
+  private agent!: WorkspaceAgent;
+  private agentPresence!: Awareness;
 
-  constructor(state: any, env: any) {
-    // Cloudflare Durable Objects provide DurableObjectState with .id and .storage
-    this.storage = state?.storage;
-    this.env = env;
-    this.state = {
-      sessionId: state?.id?.toString?.() || '',
-      collaborators: new Map(),
-      changeHistory: [],
-      currentContent: '',
-      locks: new Map(),
-      version: 0,
-    };
+  constructor(
+    private state: DurableObjectState,
+    private env: Env,
+  ) {
+    this.awareness.setLocalState(null);
+    this.ready = state.blockConcurrencyWhile(async () => {
+      const stored = await state.storage.get<Uint8Array>('document');
+      this.room = (await state.storage.get<string>('room')) ?? '';
+      this.revision = (await state.storage.get<number>('revision')) ?? 0;
+      if (stored) Y.applyUpdate(this.doc, stored, INITIALIZE_ORIGIN);
+      this.changed = false;
+      this.agent = new WorkspaceAgent(
+        this.doc,
+        {
+          engine: env.AI ? 'workers-ai' : 'structural',
+          generate: createGenerator(env.AI, env.AGENT_MODEL),
+          commit: (work) =>
+            this.enqueue(async () => {
+              const before = Y.encodeStateVector(this.doc);
+              work();
+              if (this.changed) {
+                await this.persist();
+                this.broadcast(documentUpdate(Y.encodeStateAsUpdate(this.doc, before)));
+              }
+            }),
+          retain: (promise) => state.waitUntil(promise),
+          saveSettings: (settings) => state.storage.put('agentSettings', settings),
+          publish: (status) => {
+            this.broadcast(jsonMessage(AGENT_STATE, status));
+            this.agentPresence?.setLocalStateField('agent', {
+              busy: status.busy,
+              engine: status.engine,
+            });
+          },
+        },
+        await state.storage.get<AgentSettings>('agentSettings'),
+      );
+      this.agentPresence = new Awareness(this.agent.doc);
+      this.agentPresence.on('update', () =>
+        applyAwarenessUpdate(
+          this.awareness,
+          encodeAwarenessUpdate(this.agentPresence, [this.agent.doc.clientID]),
+          'agent-presence',
+        ),
+      );
+      this.agentPresence.setLocalState({
+        user: { name: 'Forma agent', color: '#597d68', role: 'agent' },
+        agent: { busy: false, engine: env.AI ? 'workers-ai' : 'structural' },
+      });
+    });
+    this.doc.on('update', () => {
+      this.changed = true;
+      // Every mutation path persists before broadcasting; presence is separate.
+    });
+    this.awareness.on(
+      'update',
+      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
+        this.broadcast(presenceUpdate(this.awareness, [...added, ...updated, ...removed]));
+      },
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    try {
-      // Load persisted state
-      await this.loadState();
-
-      if (request.method === 'POST') {
-        if (path === '/join') {
-          return await this.handleJoin(request);
-        } else if (path === '/edit') {
-          return await this.handleEdit(request);
-        } else if (path === '/cursor') {
-          return await this.handleCursorMove(request);
-        } else if (path === '/leave') {
-          return await this.handleLeave(request);
-        } else if (path === '/broadcast') {
-          return await this.handleBroadcast(request);
-        } else {
-          return new Response(JSON.stringify({ error: 'Not Found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
+    await this.ready;
+    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket')
+      return new Response('WebSocket required', { status: 426 });
+    // Serialize first-join initialization with incoming document mutations.
+    await this.enqueue(async () => {
+      if (!this.room) {
+        const url = new URL(request.url);
+        this.room = url.pathname.split('/').at(-1)!;
+        const recovered = await this.env.DB.prepare(
+          'SELECT state, revision FROM canvas_documents WHERE id = ?',
+        )
+          .bind(this.room)
+          .first<{ state: number[]; revision: number }>();
+        if (recovered) {
+          Y.applyUpdate(this.doc, new Uint8Array(recovered.state), 'seed');
+          this.revision = recovered.revision;
+        } else seedDocument(this.doc, url.searchParams.get('empty') === '1');
+        await this.persist();
       }
-
-      if (request.method === 'GET') {
-        if (path === '/state') {
-          return this.getSessionState();
-        } else if (path === '/history') {
-          return this.getChangeHistory(request);
-        } else if (path === '/sync') {
-          return this.handleSync(request);
-        } else {
-          return new Response(JSON.stringify({ error: 'Not Found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
+      if (metadataOf(this.doc).get('codeInitialized') !== '1') {
+        this.doc.transact(() => {
+          if (!codeOf(this.doc).length)
+            replaceCode(
+              codeOf(this.doc),
+              nodesOf(this.doc).size > 500
+                ? '// Canvas.tsx\nexport {};\n'
+                : canvasToCode(this.doc).code!,
+            );
+          metadataOf(this.doc).set('codeInitialized', '1');
+        }, INITIALIZE_ORIGIN);
+        await this.persist();
       }
-
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      console.error('SessionManager error:', error);
-      return new Response(
-        JSON.stringify({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error',
+    });
+    if (this.sockets.size >= 50) return new Response('Room is full', { status: 503 });
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.binaryType = 'arraybuffer';
+    server.accept();
+    this.sockets.set(server, new Set());
+    server.addEventListener('message', (event) => {
+      this.state.waitUntil(
+        this.enqueue(async () => {
+          try {
+            if (typeof event.data === 'string' || event.data.byteLength > 2 * 1024 * 1024)
+              throw new Error('Invalid message');
+            await this.receive(server, new Uint8Array(event.data));
+          } catch (error) {
+            console.error('Canvas message rejected', error);
+            server.close(1008, 'Invalid collaboration message');
+            this.disconnect(server);
+          }
         }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
-    }
-  }
-
-  private async handleJoin(request: Request): Promise<Response> {
-    const body = (await request.json()) as any;
-    const { userId, username, color } = body;
-
-    const collaborator: Collaborator = {
-      id: userId,
-      username,
-      color,
-      cursor: { line: 0, column: 0 },
-      isActive: true,
-      lastSeen: Date.now(),
-    };
-
-    this.state.collaborators.set(userId, collaborator);
-    await this.persistState();
-
-    // Broadcast to other collaborators via Realtime
-    await this.broadcastPresence('user_joined', { collaborator });
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        content: this.state.currentContent,
-        collaborators: Array.from(this.state.collaborators.values()),
-        sessionId: this.state.sessionId,
-      }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  private async handleEdit(request: Request): Promise<Response> {
-    const change = (await request.json()) as CodeChange;
-
-    // Conflict detection: check for overlapping locks
-    if (this.isLockedRange(change.position)) {
-      return new Response(
-        JSON.stringify({ error: 'Range is locked by another user' }),
-        { status: 409 }
-      );
-    }
-
-    // Apply change using Operational Transformation principles
-    this.applyChange(change);
-    this.state.changeHistory.push(change);
-
-    await this.persistState();
-
-    // Broadcast to other collaborators
-    await this.broadcastEdit(change);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        changeId: change.id,
-        content: this.state.currentContent,
-      }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  private async handleCursorMove(request: Request): Promise<Response> {
-    const body = (await request.json()) as any;
-    const { userId, line, column } = body;
-
-    const collaborator = this.state.collaborators.get(userId);
-    if (collaborator) {
-      collaborator.cursor = { line, column };
-      collaborator.lastSeen = Date.now();
-      await this.persistState();
-
-      // Broadcast cursor position
-      await this.broadcastPresence('cursor_move', {
-        userId,
-        cursor: { line, column },
-      });
-    }
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' },
     });
+    server.addEventListener('close', () => this.disconnect(server));
+    server.addEventListener('error', () => this.disconnect(server));
+    server.send(syncStep(this.doc));
+    server.send(jsonMessage(AGENT_STATE, this.agent.state));
+    const clients = [...this.awareness.getStates().keys()];
+    if (clients.length) server.send(presenceUpdate(this.awareness, clients));
+    return new Response(null, { status: 101, webSocket: client });
   }
 
-  private async handleLeave(request: Request): Promise<Response> {
-    const body = (await request.json()) as any;
-    const { userId } = body;
-
-    this.state.collaborators.delete(userId);
-    this.state.locks.delete(userId);
-    await this.persistState();
-
-    await this.broadcastPresence('user_left', { userId });
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+  private enqueue(work: () => Promise<void>): Promise<void> {
+    const next = this.queue.then(work);
+    this.queue = next.catch((error) => console.error('Canvas operation failed', error));
+    return next;
   }
 
-  private async handleBroadcast(request: Request): Promise<Response> {
-    // Handle incoming operation/edit/join message
-    const message = (await request.json()) as any;
-
-    // If join with username updates, refresh collaborator entry
-    if (message.type === 'join' && message.userId) {
-      const existing = this.state.collaborators.get(message.userId);
-      if (existing) {
-        existing.username = message.username || existing.username;
-        existing.lastSeen = Date.now();
-        existing.isActive = true;
-        this.state.collaborators.set(message.userId, existing);
-        await this.persistState();
+  private async receive(socket: WebSocket, message: Uint8Array) {
+    const decoder = decoding.createDecoder(message);
+    const type = decoding.readVarUint(decoder);
+    if (type === SYNC) {
+      const before = Y.encodeStateVector(this.doc);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, SYNC);
+      sync.readSyncMessage(decoder, encoder, this.doc, socket);
+      if (this.changed) {
+        await this.persist();
+        this.broadcast(documentUpdate(Y.encodeStateAsUpdate(this.doc, before)));
       }
-    }
+      if (encoding.length(encoder) > 1) socket.send(encoding.toUint8Array(encoder));
+      socket.send(new Uint8Array([SAVED]));
+    } else if (type === AWARENESS) {
+      const update = decoding.readVarUint8Array(decoder);
+      if (update.byteLength > 16384) throw new Error('Awareness too large');
+      const ids = awarenessClientIds(update);
+      const owned = this.sockets.get(socket)!;
+      for (const id of ids) {
+        if (id === this.agent.doc.clientID) throw new Error('The agent identity is reserved');
+        for (const [other, clients] of this.sockets)
+          if (other !== socket && clients.has(id)) throw new Error('Awareness ID already owned');
+        if (!owned.has(id) && owned.size >= 1) throw new Error('One awareness identity per socket');
+        owned.add(id);
+      }
+      applyAwarenessUpdate(this.awareness, update, socket);
+    } else if (type === AGENT_COMMAND) {
+      const json = decoding.readVarString(decoder);
+      if (json.length > 12000) throw new Error('Agent command is too large');
+      await this.agent.command(JSON.parse(json));
+    } else throw new Error('Unknown message');
+  }
 
-    // Handle Yjs sync messages - the primary sync mechanism
-    if (message.type === 'sync' && message.yState) {
+  private async persist() {
+    this.revision++;
+    await this.state.storage.put({
+      document: Y.encodeStateAsUpdate(this.doc),
+      room: this.room,
+      revision: this.revision,
+    });
+    this.changed = false;
+    if ((await this.state.storage.getAlarm()) === null)
+      await this.state.storage.setAlarm(Date.now() + 1500);
+  }
+
+  async alarm() {
+    await this.ready;
+    await this.enqueue(async () => {
+      const data = Y.encodeStateAsUpdate(this.doc);
+      await this.env.DB.prepare(
+        'INSERT INTO canvas_documents (id, state, revision, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state, revision = excluded.revision, updated_at = excluded.updated_at',
+      )
+        .bind(this.room, data, this.revision, Date.now())
+        .run();
+    });
+  }
+
+  private broadcast(message: Uint8Array) {
+    for (const socket of this.sockets.keys()) {
       try {
-        console.log(`[SessionManager] Received Yjs sync from ${message.username} (userId: ${message.userId})`);
-        
-        // Update or create collaborator info
-        let collaborator = this.state.collaborators.get(message.userId);
-        if (!collaborator) {
-          collaborator = {
-            id: message.userId,
-            username: message.username || 'Unknown',
-            color: '#3b82f6',
-            cursor: { line: 0, column: 0 },
-            isActive: true,
-            lastSeen: Date.now(),
-          };
-          this.state.collaborators.set(message.userId, collaborator);
-          console.log(`[SessionManager] New collaborator joined: ${message.username}`);
-        } else {
-          collaborator.lastSeen = Date.now();
-          collaborator.isActive = true;
-          collaborator.username = message.username || collaborator.username;
-        }
-        
-        // NOTE: Do NOT update currentContent from raw content field
-        // Yjs updates handle conflict resolution and merging properly
-        // Only the Yjs state matters for content sync
-        
-        // Store Yjs update for other clients to pull
-        const yStateUpdate = {
-          yState: message.yState,
-          userId: message.userId,
-          username: message.username,
-          awarenessState: message.awarenessState,
-          timestamp: message.timestamp || Date.now(),
-        };
-        
-        this.pendingUpdates.push({
-          type: 'yjs_sync',
-          ...yStateUpdate,
-        });
-        
-        if (this.pendingUpdates.length > 200) this.pendingUpdates.shift();
-        
-        await this.persistState();
-        
-        return new Response(
-          JSON.stringify({ success: true, synced: true, timestamp: Date.now() }),
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-      } catch (err) {
-        console.error('Error handling Yjs sync:', err);
-        return new Response(
-          JSON.stringify({ success: false, error: 'Failed to sync Yjs state' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        );
+        socket.send(message);
+      } catch {
+        this.disconnect(socket);
       }
     }
-
-    // Persist if it's an operation (legacy support)
-    if (message.type === 'operation' && message.operation) {
-      const op: Operation = message.operation as Operation;
-      const baseVersion = typeof op.baseVersion === 'number' ? op.baseVersion : undefined;
-      if (baseVersion !== undefined && baseVersion !== this.state.version) {
-        // Version conflict: return 409 with latest content and version
-        return new Response(
-          JSON.stringify({
-            conflict: true,
-            version: this.state.version,
-            content: this.state.currentContent,
-          }),
-          { status: 409, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Apply operation to current content
-      this.state.currentContent = this.applyOperationToContent(this.state.currentContent, op);
-      this.state.version = (this.state.version || 0) + 1;
-
-      this.state.changeHistory.push({
-        id: crypto.randomUUID(),
-        userId: message.userId,
-        sessionId: this.state.sessionId,
-        type: op.type,
-        position: op.position,
-        content: op.content || '',
-        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
-      });
-
-      await this.persistState();
-
-      // Add to pending updates queue for polling clients with version
-      this.pendingUpdates.push({
-        type: 'operation',
-        userId: message.userId,
-        operation: op,
-        version: this.state.version,
-        timestamp: Date.now(),
-      });
-      if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
-
-      return new Response(
-        JSON.stringify({ queued: true, version: this.state.version }),
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Default: enqueue message for clients (presence/cursor)
-    this.pendingUpdates.push({
-      ...message,
-      timestamp: Date.now(),
-    });
-    if (this.pendingUpdates.length > 100) this.pendingUpdates.shift();
-
-    return new Response(JSON.stringify({ queued: true }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
   }
 
-  private handleSync(request: Request): Response {
-    // Polling endpoint - return all updates since lastSync
-    const url = new URL(request.url);
-    const lastSync = parseInt(url.searchParams.get('lastSync') || '0');
-    const userId = url.searchParams.get('userId');
-
-    // Filter updates since last sync
-    const allUpdates = this.pendingUpdates.filter((u) => u.timestamp > lastSync);
-    
-    // Separate Yjs updates from other updates
-    const yjsUpdates = allUpdates.filter(u => u.type === 'yjs_sync');
-    const otherUpdates = allUpdates.filter(u => u.type !== 'yjs_sync');
-
-    console.log(`[SessionManager] Sync: found ${yjsUpdates.length} Yjs updates, ${otherUpdates.length} other updates for userId: ${userId}`);
-
-    // Get all collaborators including the requesting user
-    const allCollaborators = Array.from(this.state.collaborators.values()).map((c) => ({
-      id: c.id,
-      username: c.username,
-      color: c.color,
-      cursor: c.cursor,
-      isActive: c.isActive,
-    }));
-    
-    console.log(`[SessionManager] Returning ${allCollaborators.length} total collaborators (all users in session)`);
-
-    return new Response(
-      JSON.stringify({
-        content: this.state.currentContent,
-        version: this.state.version || 0,
-        collaborators: allCollaborators,
-        updates: yjsUpdates,
-        otherUpdates,
-        timestamp: Date.now(),
-      }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  private getSessionState(): Response {
-    return new Response(
-      JSON.stringify({
-        sessionId: this.state.sessionId,
-        content: this.state.currentContent,
-        collaborators: Array.from(this.state.collaborators.values()),
-        changeCount: this.state.changeHistory.length,
-      }),
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  private getChangeHistory(request: Request): Response {
-    const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit') || '50');
-    const offset = parseInt(url.searchParams.get('offset') || '0');
-
-    const history = this.state.changeHistory.slice(
-      Math.max(0, this.state.changeHistory.length - limit - offset),
-      this.state.changeHistory.length - offset
-    );
-
-    return new Response(JSON.stringify({ changes: history, total: this.state.changeHistory.length }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  private applyChange(change: CodeChange): void {
-    const content = this.state.currentContent;
-    // Convert line/column to absolute position
-    const lines = content.split('\n');
-    let absolutePos = 0;
-
-    for (let i = 0; i < change.position.line; i++) {
-      absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
-    }
-    absolutePos += change.position.column;
-
-    if (change.type === 'insert') {
-      this.state.currentContent =
-        content.slice(0, absolutePos) + change.content + content.slice(absolutePos);
-    } else if (change.type === 'delete') {
-      this.state.currentContent =
-        content.slice(0, absolutePos) + content.slice(absolutePos + change.content.length);
-    } else if (change.type === 'replace') {
-      const endPos = absolutePos + change.content.length;
-      this.state.currentContent =
-        content.slice(0, absolutePos) + change.content + content.slice(endPos);
-    }
-  }
-
-  private isLockedRange(position: { line: number; column: number }): boolean {
-    const now = Date.now();
-    const lockTimeout = 5000; // 5 second lock timeout
-
-    for (const [userId, lockTime] of this.state.locks.entries()) {
-      if (now - lockTime < lockTimeout) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private applyOperationToContent(content: string, operation: any): string {
-    const { type, position, content: opContent, length, oldLength } = operation;
-    
-    // Convert line/column to absolute position
-    const lines = content.split('\n');
-    let absolutePos = 0;
-    for (let i = 0; i < position.line; i++) {
-      absolutePos += (lines[i]?.length || 0) + 1; // +1 for newline
-    }
-    absolutePos += position.column;
-
-    if (type === 'insert') {
-      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos);
-    } else if (type === 'delete') {
-      return content.slice(0, absolutePos) + content.slice(absolutePos + length);
-    } else if (type === 'replace') {
-      return content.slice(0, absolutePos) + opContent + content.slice(absolutePos + oldLength);
-    }
-    return content;
-  }
-
-  private async broadcastEdit(change: CodeChange): Promise<void> {
-    // In production, this would broadcast via Realtime API
-    const message: RealtimeMessage = {
-      type: 'edit',
-      sessionId: this.state.sessionId,
-      userId: change.userId,
-      data: change,
-      timestamp: Date.now(),
-    };
-
-    console.log('Broadcasting edit:', message);
-  }
-
-  private async broadcastPresence(eventType: string, data: any): Promise<void> {
-    const message: RealtimeMessage = {
-      type: 'presence',
-      sessionId: this.state.sessionId,
-      userId: 'system',
-      data: { eventType, ...data },
-      timestamp: Date.now(),
-    };
-
-    console.log('Broadcasting presence:', message);
-  }
-
-  private async loadState(): Promise<void> {
-    const stored = await this.storage.get('sessionState');
-    if (stored) {
-      const parsed = JSON.parse(stored as string);
-      this.state = {
-        ...parsed,
-        collaborators: new Map(parsed.collaborators),
-        locks: new Map(parsed.locks),
-        version: typeof parsed.version === 'number' ? parsed.version : 0,
-      };
-    }
-  }
-
-  private async persistState(): Promise<void> {
-    await this.storage.put(
-      'sessionState',
-      JSON.stringify({
-        ...this.state,
-        collaborators: Array.from(this.state.collaborators.entries()),
-        locks: Array.from(this.state.locks.entries()),
-        version: this.state.version || 0,
-      })
-    );
+  private disconnect(socket: WebSocket) {
+    const clients = this.sockets.get(socket);
+    if (!clients) return;
+    this.sockets.delete(socket);
+    removeAwarenessStates(this.awareness, [...clients], 'disconnect');
   }
 }

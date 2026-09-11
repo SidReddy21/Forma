@@ -1,23 +1,43 @@
 {
-  "name": "vortex-code",
+  "name": "forma-workspace",
   "version": "1.0.0",
-  "description": "AI-powered collaborative code editor with real-time sync",
+  "description": "A collaborative canvas, code editor, and AI workspace on Cloudflare Durable Objects and Yjs",
   "private": true,
-  "scripts": {
-    "dev": "wrangler dev",
-    "build": "npm run build:backend && npm run build:frontend",
-    "build:backend": "wrangler build",
-    "build:frontend": "cd frontend && npm run build",
-    "deploy": "npm run build && wrangler publish",
-    "type-check": "tsc --noEmit"
-  },
+  "type": "module",
   "workspaces": [
-    "frontend",
-    "backend"
+    "frontend"
   ],
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "dev:ai": "wrangler dev --env ai --port 8787",
+    "deploy:ai": "npm run build:frontend && wrangler deploy --env ai",
+    "dev:frontend": "npm run dev --workspace frontend -- --host 127.0.0.1",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:backend": "wrangler deploy --dry-run --outdir dist/worker",
+    "build:frontend": "npm run build --workspace frontend",
+    "type-check": "tsc --noEmit && npm run type-check --workspace frontend",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:init": "wrangler d1 execute forma-db --local --file schema.sql",
+    "deploy": "npm run build:frontend && wrangler deploy"
+  },
+  "dependencies": {
+    "@babel/parser": "^8.0.5",
+    "fractional-indexing": "^3.2.0",
+    "lib0": "^0.2.114",
+    "monaco-editor": "^0.53.0",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.27"
+  },
   "devDependencies": {
-    "@types/node": "^20.10.0",
-    "typescript": "^5.3.3",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
     "wrangler": "^4.58.0"
   }
 }

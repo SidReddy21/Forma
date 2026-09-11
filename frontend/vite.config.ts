@@ -7,11 +7,11 @@ export default defineConfig({
     middlewareMode: false,
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
+        target: 'http://127.0.0.1:8787',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8787',
+        target: 'ws://127.0.0.1:8787',
         ws: true,
       },
     },

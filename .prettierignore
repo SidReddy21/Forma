@@ -1,0 +1,7 @@
+node_modules
+dist
+frontend/dist
+.wrangler
+.local
+test-results
+package-lock.json
